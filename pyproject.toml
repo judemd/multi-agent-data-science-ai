@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Human-in-the-loop multi-agent data science workflow using Google ADK and Vertex AI."
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "google-adk>=2.10.0",
     "pydantic>=2.13.5",
     "pytest>=9.1.1",
     "ruff>=0.16.9",
