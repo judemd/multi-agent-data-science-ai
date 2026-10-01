@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tools.data_profiler import profile_dataset
+from tools.data_profiler import profile_dataframe, profile_dataset
 
 
 def test_profile_csv_dataset():
@@ -61,3 +61,25 @@ def test_profile_xlsx_dataset(tmp_path):
     assert artifact.column_count == 3
     assert "tenure_months" in artifact.numeric_columns
     assert "segment" in artifact.categorical_columns
+
+def test_profile_dataframe_accepts_in_memory_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "customer_id": ["C001", "C002", "C003"],
+            "revenue": [100.0, 200.0, 300.0],
+        }
+    )
+
+    result = profile_dataframe(
+        dataframe,
+        file_name="customers.csv",
+    )
+
+    assert result.file_name == "customers.csv"
+    assert result.row_count == 3
+    assert result.column_count == 2
+    assert result.columns == [
+        "customer_id",
+        "revenue",
+    ]
+    assert result.numeric_columns == ["revenue"]

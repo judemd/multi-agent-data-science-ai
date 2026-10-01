@@ -10,19 +10,25 @@ def prepare_data_understanding_stage(
     dataframe: pd.DataFrame,
     target_column: str | None = None,
 ) -> str:
-    """Prepare complete evidence for the Data Understanding Agent.
+    """Prepare complete evidence for the Data Understanding Agent."""
 
-    Deterministic EDA is calculated from the supplied DataFrame and merged
-    into the existing validated artifact before the agent prompt is built.
-
-    The agent receives structured evidence and is responsible for
-    interpretation, not statistical calculation.
-    """
-
-    enriched_artifact = add_eda_evidence(
+    enriched_artifact = build_data_understanding_evidence(
         artifact,
         dataframe,
         target_column=target_column,
     )
 
     return build_data_understanding_prompt(enriched_artifact)
+
+def build_data_understanding_evidence(
+    artifact: DataUnderstandingArtifact,
+    dataframe: pd.DataFrame,
+    target_column: str | None = None,
+) -> DataUnderstandingArtifact:
+    """Build complete deterministic evidence without modifying the input artifact."""
+
+    return add_eda_evidence(
+        artifact,
+        dataframe,
+        target_column=target_column,
+    )

@@ -2,6 +2,7 @@ import pandas as pd
 
 from domain.data_understanding import DataUnderstandingArtifact
 from workflow.data_understanding_stage import (
+    build_data_understanding_evidence,
     prepare_data_understanding_stage,
 )
 
@@ -96,3 +97,20 @@ def test_stage_does_not_modify_artifact():
     )
 
     assert artifact.model_dump() == before
+
+def test_build_data_understanding_evidence_returns_enriched_artifact():
+    artifact = build_artifact()
+    dataframe = build_dataframe()
+
+    result = build_data_understanding_evidence(
+        artifact,
+        dataframe,
+        target_column="churn",
+    )
+
+    assert isinstance(result, DataUnderstandingArtifact)
+    assert result.file_name == artifact.file_name
+    assert result.row_count == artifact.row_count
+    assert result.numeric_summary
+    assert result.numeric_correlations
+    assert result.numeric_target_relationships

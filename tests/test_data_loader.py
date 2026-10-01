@@ -6,6 +6,7 @@ import pytest
 from tools.data_loader import (
     UnsupportedFileTypeError,
     load_dataset,
+    load_uploaded_dataset,
 )
 
 
@@ -30,3 +31,22 @@ def test_rejects_unsupported_file_type(tmp_path):
 def test_raises_for_missing_file():
     with pytest.raises(FileNotFoundError):
         load_dataset("datasets/does_not_exist.csv")
+
+def test_load_uploaded_csv():
+    content = (
+        b"customer_id,revenue\n"
+        b"C001,100\n"
+        b"C002,200\n"
+    )
+
+    result = load_uploaded_dataset(
+        "customers.csv",
+        content,
+    )
+
+    assert list(result.columns) == [
+        "customer_id",
+        "revenue",
+    ]
+    assert len(result) == 2
+    assert result["revenue"].tolist() == [100, 200]

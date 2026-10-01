@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pandas as pd
+
 from domain.data_understanding import DataUnderstandingArtifact
 from tools.data_loader import load_dataset
 from tools.data_quality import (
@@ -13,15 +15,16 @@ from tools.data_quality import (
 )
 
 
-def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
-    """Build a deterministic data-understanding artifact."""
+def profile_dataframe(
+    dataframe: pd.DataFrame,
+    *,
+    file_name: str = "dataset",
+) -> DataUnderstandingArtifact:
+    """Build a deterministic data-understanding artifact from a DataFrame.
 
-    path = Path(file_path)
-
-    if not path.exists():
-        raise FileNotFoundError(f"Dataset '{file_path}' was not found.")
-
-    dataframe = load_dataset(file_path)
+    The function performs data-quality analysis only. Exploratory analysis
+    evidence is added separately by the EDA layer.
+    """
 
     missing_value_summary = count_blank_and_null_like_values(dataframe)
     duplicate_row_count = count_duplicate_rows(dataframe)
@@ -32,11 +35,11 @@ def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
     }
 
     numeric_columns = dataframe.select_dtypes(
-        include="number"
+        include="number",
     ).columns.tolist()
 
     categorical_columns = dataframe.select_dtypes(
-        include=["object", "category"]
+        include=["object", "category"],
     ).columns.tolist()
 
     numeric_like_columns = detect_numeric_like_columns(dataframe)
@@ -44,12 +47,18 @@ def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
     duplicate_value_summary: dict[str, dict[str, int]] = {}
 
     for column in dataframe.columns:
-        duplicates = find_duplicate_values(dataframe, column)
+        duplicates = find_duplicate_values(
+            dataframe,
+            column,
+        )
 
         if duplicates:
             duplicate_value_summary[column] = duplicates
 
-    categorical_inconsistencies: dict[str, dict[str, list[str]]] = {}
+    categorical_inconsistencies: dict[
+        str,
+        dict[str, list[str]],
+    ] = {}
 
     for column in categorical_columns:
         inconsistencies = detect_categorical_inconsistencies(
@@ -87,56 +96,56 @@ def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
 
     if duplicate_row_count > 0:
         potential_issues.append(
-            f"{duplicate_row_count} exact duplicate row(s) detected."
+            f"{duplicate_row_count} exact duplicate row(s) detected.",
         )
         analyst_questions.append(
-            "Should exact duplicate rows be removed or retained?"
+            "Should exact duplicate rows be removed or retained?",
         )
 
     if missing_value_summary:
         potential_issues.append(
             f"Missing or null-like values detected in "
-            f"{len(missing_value_summary)} column(s)."
+            f"{len(missing_value_summary)} column(s).",
         )
         analyst_questions.append(
-            "How should missing or null-like values be treated?"
+            "How should missing or null-like values be treated?",
         )
 
     if numeric_like_columns:
         potential_issues.append(
             f"{len(numeric_like_columns)} text column(s) appear to contain "
-            "predominantly numeric values."
+            "predominantly numeric values.",
         )
         analyst_questions.append(
-            "Should numeric-like text columns be converted to numeric types?"
+            "Should numeric-like text columns be converted to numeric types?",
         )
 
     if categorical_inconsistencies:
         potential_issues.append(
             f"Categorical inconsistencies detected in "
-            f"{len(categorical_inconsistencies)} column(s)."
+            f"{len(categorical_inconsistencies)} column(s).",
         )
         analyst_questions.append(
-            "Which categorical normalization rules should be approved?"
+            "Which categorical normalization rules should be approved?",
         )
 
     if formatting_issues:
         potential_issues.append(
             f"String formatting issues detected in "
-            f"{len(formatting_issues)} column(s)."
+            f"{len(formatting_issues)} column(s).",
         )
 
     if outlier_summary:
         potential_issues.append(
             f"IQR-based outliers detected in "
-            f"{len(outlier_summary)} numeric column(s)."
+            f"{len(outlier_summary)} numeric column(s).",
         )
         analyst_questions.append(
-            "Which statistical outliers represent valid business observations?"
+            "Which statistical outliers represent valid business observations?",
         )
 
     return DataUnderstandingArtifact(
-        file_name=path.name,
+        file_name=file_name,
         row_count=len(dataframe),
         column_count=len(dataframe.columns),
         columns=dataframe.columns.tolist(),
@@ -152,4 +161,22 @@ def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
         outlier_summary=outlier_summary,
         potential_issues=potential_issues,
         analyst_questions=analyst_questions,
+    )
+
+
+def profile_dataset(file_path: str) -> DataUnderstandingArtifact:
+    """Build a deterministic artifact from a supported dataset file."""
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Dataset '{file_path}' was not found.",
+        )
+
+    dataframe = load_dataset(file_path)
+
+    return profile_dataframe(
+        dataframe,
+        file_name=path.name,
     )
