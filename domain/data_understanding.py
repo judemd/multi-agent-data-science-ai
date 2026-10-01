@@ -2,16 +2,37 @@ from pydantic import BaseModel, Field
 
 
 class DataUnderstandingArtifact(BaseModel):
-    """Structured output from the data understanding stage."""
+    """Structured evidence produced by the data understanding stage.
 
-    file_name: str = Field(min_length=1)
+    The artifact combines deterministic data-quality and exploratory-analysis
+    results so downstream agents can interpret evidence without calculating
+    statistics themselves.
+    """
 
-    row_count: int = Field(ge=0)
-    column_count: int = Field(ge=0)
+    file_name: str = Field(
+        min_length=1,
+        description="Name of the dataset file that was analyzed.",
+    )
 
-    columns: list[str] = Field(default_factory=list)
+    row_count: int = Field(
+        ge=0,
+        description="Number of rows in the analyzed dataset.",
+    )
 
-    duplicate_row_count: int = Field(ge=0)
+    column_count: int = Field(
+        ge=0,
+        description="Number of columns in the analyzed dataset.",
+    )
+
+    columns: list[str] = Field(
+        default_factory=list,
+        description="Column names present in the dataset.",
+    )
+
+    duplicate_row_count: int = Field(
+        ge=0,
+        description="Number of duplicate rows identified in the dataset.",
+    )
 
     duplicate_value_summary: dict[str, dict[str, int]] = Field(
         default_factory=dict,
@@ -30,10 +51,12 @@ class DataUnderstandingArtifact(BaseModel):
 
     numeric_columns: list[str] = Field(
         default_factory=list,
+        description="Columns identified as numeric by pandas.",
     )
 
     categorical_columns: list[str] = Field(
         default_factory=list,
+        description="Columns identified as categorical or string-based by pandas.",
     )
 
     numeric_like_columns: dict[str, dict[str, float | int]] = Field(
@@ -64,4 +87,29 @@ class DataUnderstandingArtifact(BaseModel):
     analyst_questions: list[str] = Field(
         default_factory=list,
         description="Questions requiring human or business clarification.",
+    )
+
+    numeric_summary: dict[str, dict[str, float | int]] = Field(
+        default_factory=dict,
+        description="Descriptive statistics for numeric columns.",
+    )
+
+    categorical_summary: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description="Frequency summaries for categorical columns.",
+    )
+
+    numeric_correlations: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Pearson correlations between numeric columns.",
+    )
+
+    numeric_target_relationships: dict[str, float] = Field(
+        default_factory=dict,
+        description="Correlations between numeric features and the target.",
+    )
+
+    categorical_target_relationships: dict[str, dict[str, object]] = Field(
+        default_factory=dict,
+        description="Target rates across categorical feature values.",
     )
