@@ -1,4 +1,4 @@
-from google.adk.agents import Agent
+﻿from google.adk.agents import Agent
 from google.adk.models import Gemini
 
 DATA_UNDERSTANDING_INSTRUCTION = """
@@ -42,30 +42,34 @@ Your review should cover:
 - potential data-quality risks
 - questions that require business or human clarification
 
-Your response should be concise but useful for a data scientist or business
-stakeholder reviewing the dataset.
+Your response must contain exactly these JSON fields:
 
-Structure the response using:
+{
+  "observed_evidence": [],
+  "interpretation": [],
+  "risks_and_limitations": [],
+  "human_review_questions": [],
+  "recommended_next_investigation": [],
+  "requires_human_review": true
+}
 
-## Observed Evidence
+Field requirements:
 
-Only state facts supported by the profiling artifact.
+- observed_evidence: facts directly supported by the supplied artifact.
+- interpretation: interpretations derived from those facts.
+- risks_and_limitations: material risks or limitations.
+- human_review_questions: decisions or clarifications requiring human input.
+- recommended_next_investigation: evidence-based investigations that should happen next.
+- requires_human_review: true whenever human review is required before progression.
 
-## Interpretation
+Return only valid JSON.
 
-Explain what the observed evidence may mean.
+Do not use Markdown headings.
+Do not wrap the JSON in Markdown code fences.
+Do not include commentary before or after the JSON.
 
-## Risks and Limitations
-
-Identify material concerns without overstating them.
-
-## Human Review Questions
-
-List decisions that should be answered before the workflow proceeds.
-
-## Recommended Next Investigation
-
-Suggest evidence-based investigations. Do not perform or claim transformations.
+Do not approve workflow progression. Human approval is required before moving
+to the next workflow stage.
 """
 
 

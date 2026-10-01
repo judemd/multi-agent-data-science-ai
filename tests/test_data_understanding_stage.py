@@ -1,9 +1,11 @@
-import pandas as pd
+﻿import pandas as pd
 
 from domain.data_understanding import DataUnderstandingArtifact
+from domain.data_understanding_review import DataUnderstandingReview
 from workflow.data_understanding_stage import (
     build_data_understanding_evidence,
     prepare_data_understanding_stage,
+    run_data_understanding_stage,
 )
 
 
@@ -98,6 +100,7 @@ def test_stage_does_not_modify_artifact():
 
     assert artifact.model_dump() == before
 
+
 def test_build_data_understanding_evidence_returns_enriched_artifact():
     artifact = build_artifact()
     dataframe = build_dataframe()
@@ -114,3 +117,35 @@ def test_build_data_understanding_evidence_returns_enriched_artifact():
     assert result.numeric_summary
     assert result.numeric_correlations
     assert result.numeric_target_relationships
+
+
+def test_run_data_understanding_stage_returns_agent_review(monkeypatch):
+    expected_review = DataUnderstandingReview(
+        observed_evidence=[
+            "The dataset contains four rows.",
+        ],
+        interpretation=[
+            "The dataset is available for initial review.",
+        ],
+        requires_human_review=True,
+    )
+
+    def fake_run_agent(prompt: str) -> DataUnderstandingReview:
+        assert "customers.csv" in prompt
+        assert "revenue" in prompt
+        assert "churn" in prompt
+        return expected_review
+
+    monkeypatch.setattr(
+        "workflow.data_understanding_stage.run_data_understanding_agent",
+        fake_run_agent,
+    )
+
+    result = run_data_understanding_stage(
+        build_artifact(),
+        build_dataframe(),
+        target_column="churn",
+    )
+
+    assert result == expected_review
+    assert result.requires_human_review is True

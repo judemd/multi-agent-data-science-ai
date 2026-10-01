@@ -1,6 +1,8 @@
-from typing import Literal
+﻿from typing import Literal
 
+from domain.data_understanding_review import DataUnderstandingReview
 from domain.hitl_decision import HITLDecision
+from workflow.hitl_gate import evaluate_data_understanding_hitl
 
 DataUnderstandingState = Literal[
     "data_understanding",
@@ -23,3 +25,21 @@ def transition_after_hitl(
         return "revision"
 
     return "blocked"
+
+
+def evaluate_and_transition_data_understanding(
+    review: DataUnderstandingReview,
+    decision: HITLDecision,
+) -> DataUnderstandingState:
+    """Evaluate the HITL gate and return the resulting workflow state."""
+
+    if review.requires_human_review:
+        return "blocked"
+
+    if evaluate_data_understanding_hitl(
+        review,
+        decision,
+    ):
+        return "next_stage"
+
+    return transition_after_hitl(decision)
