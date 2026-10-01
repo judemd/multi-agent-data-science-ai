@@ -33,9 +33,6 @@ def evaluate_and_transition_data_understanding(
 ) -> DataUnderstandingState:
     """Evaluate the HITL gate and return the resulting workflow state."""
 
-    if review.requires_human_review:
-        return "blocked"
-
     if evaluate_data_understanding_hitl(
         review,
         decision,

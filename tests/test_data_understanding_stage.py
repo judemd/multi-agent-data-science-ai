@@ -6,6 +6,7 @@ from workflow.data_understanding_stage import (
     build_data_understanding_evidence,
     prepare_data_understanding_stage,
     run_data_understanding_stage,
+    run_data_understanding_stage_with_artifact,
 )
 
 
@@ -149,3 +150,32 @@ def test_run_data_understanding_stage_returns_agent_review(monkeypatch):
 
     assert result == expected_review
     assert result.requires_human_review is True
+
+
+def test_run_stage_with_artifact_returns_exact_enriched_artifact(monkeypatch):
+    expected_review = DataUnderstandingReview(
+        observed_evidence=[
+            "The dataset contains four rows.",
+        ],
+        requires_human_review=True,
+    )
+
+    def fake_run_agent(prompt: str) -> DataUnderstandingReview:
+        assert "numeric_target_relationships" in prompt
+        return expected_review
+
+    monkeypatch.setattr(
+        "workflow.data_understanding_stage.run_data_understanding_agent",
+        fake_run_agent,
+    )
+
+    result = run_data_understanding_stage_with_artifact(
+        build_artifact(),
+        build_dataframe(),
+        target_column="churn",
+    )
+
+    assert result.review == expected_review
+    assert result.artifact.numeric_summary
+    assert result.artifact.numeric_correlations
+    assert result.artifact.numeric_target_relationships

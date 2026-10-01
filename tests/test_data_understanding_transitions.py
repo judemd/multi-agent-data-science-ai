@@ -56,7 +56,7 @@ def test_approved_review_allows_next_stage():
     ) == "next_stage"
 
 
-def test_review_requiring_human_review_cannot_progress():
+def test_review_requiring_human_review_can_progress_after_human_approval():
     review = DataUnderstandingReview(
         observed_evidence=[
             "Further clarification is required.",
@@ -67,13 +67,13 @@ def test_review_requiring_human_review_cannot_progress():
     decision = HITLDecision(
         decision="approve",
         reviewer="data_scientist",
-        rationale="Preliminary approval.",
+        rationale="The review has been considered and progression is approved.",
     )
 
     assert evaluate_and_transition_data_understanding(
         review,
         decision,
-    ) == "blocked"
+    ) == "next_stage"
 
 
 def test_revision_request_returns_revision_state():

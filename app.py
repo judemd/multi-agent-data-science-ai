@@ -1,12 +1,20 @@
-import pandas as pd
+﻿import pandas as pd
 import streamlit as st
 
+from domain.data_understanding import DataUnderstandingArtifact
+from domain.data_understanding_review import DataUnderstandingReview
+from domain.hitl_decision import HITLDecision
 from tools.data_loader import (
     UnsupportedFileTypeError,
     load_uploaded_dataset,
 )
 from tools.data_profiler import profile_dataframe
-from tools.data_understanding_eda import add_eda_evidence
+from workflow.data_understanding_stage import (
+    run_data_understanding_stage_with_artifact,
+)
+from workflow.data_understanding_transitions import (
+    evaluate_and_transition_data_understanding,
+)
 
 st.set_page_config(
     page_title="Multi-Agent Data Science AI",
@@ -272,22 +280,11 @@ def render_target_selection(
     return selected_target
 
 def render_data_understanding_evidence(
-    dataframe: pd.DataFrame,
-    file_name: str,
+    artifact: DataUnderstandingArtifact,
     target_column: str | None = None,
 ) -> None:
-    """Build and display structured Data Understanding evidence."""
+    """Display the validated Data Understanding evidence."""
 
-    artifact = profile_dataframe(
-        dataframe,
-        file_name=file_name,
-    )
-
-    artifact = add_eda_evidence(
-        artifact,
-        dataframe,
-        target_column=target_column,
-    )
 
     st.subheader("Data Understanding")
 
@@ -481,6 +478,158 @@ def render_data_understanding_evidence(
                     hide_index=True,
                 )
 
+def render_agent_review(
+    review: DataUnderstandingReview,
+) -> None:
+    """Display the Data Understanding Agent's structured review."""
+
+    st.subheader("Data Understanding Agent Review")
+
+    st.caption(
+        "The agent interpreted deterministic evidence. "
+        "Human review is required before workflow progression."
+    )
+
+    observed_tab, interpretation_tab, risks_tab, questions_tab, investigation_tab = (
+        st.tabs(
+            [
+                "Observed Evidence",
+                "Interpretation",
+                "Risks & Limitations",
+                "Human Review Questions",
+                "Next Investigation",
+            ]
+        )
+    )
+
+    with observed_tab:
+        if review.observed_evidence:
+            for item in review.observed_evidence:
+                st.write(f"- {item}")
+        else:
+            st.info("No observed evidence was returned.")
+
+    with interpretation_tab:
+        if review.interpretation:
+            for item in review.interpretation:
+                st.write(f"- {item}")
+        else:
+            st.info("No interpretation was returned.")
+
+    with risks_tab:
+        if review.risks_and_limitations:
+            for item in review.risks_and_limitations:
+                st.warning(item)
+        else:
+            st.success("No material risks or limitations were identified.")
+
+    with questions_tab:
+        if review.human_review_questions:
+            for item in review.human_review_questions:
+                st.write(f"- {item}")
+        else:
+            st.info("No human review questions were returned.")
+
+    with investigation_tab:
+        if review.recommended_next_investigation:
+            for item in review.recommended_next_investigation:
+                st.write(f"- {item}")
+        else:
+            st.info("No additional investigation was recommended.")
+
+    if review.requires_human_review:
+        st.warning(
+            "The agent indicates that additional human review is required "
+            "before progression."
+        )
+    else:
+        st.info(
+            "The agent does not indicate that additional review is required. "
+            "Human approval is still required."
+        )
+
+
+def render_hitl_controls(
+    review: DataUnderstandingReview,
+) -> None:
+    """Collect and evaluate the human Data Understanding decision."""
+
+    st.subheader("Human Review")
+
+    reviewer = st.text_input(
+        "Reviewer *",
+        placeholder="Enter reviewer name or role.",
+        key="data_understanding_reviewer",
+    )
+
+    rationale = st.text_area(
+        "Reviewer rationale *",
+        placeholder="Explain the reason for your decision.",
+        key="data_understanding_review_rationale",
+    )
+
+    approve_column, revision_column, reject_column = st.columns(3)
+
+    with approve_column:
+        approve = st.button(
+            "Approve",
+            type="primary",
+            disabled=False,
+        )
+
+    with revision_column:
+        request_revision = st.button("Request Revision")
+
+    with reject_column:
+        reject = st.button("Reject")
+
+    decision_value = None
+
+    if approve:
+        decision_value = "approve"
+    elif request_revision:
+        decision_value = "request_revision"
+    elif reject:
+        decision_value = "reject"
+
+    if decision_value is None:
+        return
+
+    if not reviewer.strip():
+        st.warning("Enter the reviewer before submitting a decision.")
+        return
+
+    if not rationale.strip():
+        st.warning("Enter a rationale before submitting a decision.")
+        return
+
+    decision = HITLDecision(
+        decision=decision_value,
+        reviewer=reviewer.strip(),
+        rationale=rationale.strip(),
+    )
+
+    next_state = evaluate_and_transition_data_understanding(
+        review,
+        decision,
+    )
+
+    st.session_state["data_understanding_decision"] = decision
+    st.session_state["data_understanding_state"] = next_state
+
+    if next_state == "next_stage":
+        st.success(
+            "Human approval recorded. Data Understanding may progress "
+            "to the next stage."
+        )
+    elif next_state == "revision":
+        st.warning(
+            "Revision requested. Further Data Understanding work is required."
+        )
+    else:
+        st.error(
+            "The workflow is blocked by the current human review decision."
+        )
 
 def main() -> None:
     """Render the main application."""
@@ -547,12 +696,58 @@ def main() -> None:
             )
             return
 
+        with st.spinner(
+            "Preparing deterministic evidence and running the "
+            "Data Understanding Agent..."
+        ):
+            try:
+                artifact = profile_dataframe(
+                    dataframe,
+                    file_name=uploaded_file.name,
+                )
+
+                stage_result = run_data_understanding_stage_with_artifact(
+                    artifact,
+                    dataframe,
+                    target_column=target_column,
+                )
+
+                artifact = stage_result.artifact
+                review = stage_result.review
+
+            except ValueError as exc:
+                st.error(
+                    f"The Data Understanding Agent returned an invalid review: {exc}"
+                )
+                return
+            except OSError as exc:
+                st.error(
+                    f"Unable to complete Data Understanding: {exc}"
+                )
+                return
+
+        st.session_state["data_understanding_review"] = review
+        st.session_state["data_understanding_artifact"] = artifact
+        st.session_state["data_understanding_file_name"] = uploaded_file.name
+
+    artifact = st.session_state.get("data_understanding_artifact")
+    review = st.session_state.get("data_understanding_review")
+
+    if artifact is not None:
+        st.divider()
         render_data_understanding_evidence(
-            dataframe,
-            uploaded_file.name,
+            artifact,
             target_column=target_column,
         )
+
+    if review is not None:
+        st.divider()
+        render_agent_review(review)
+
+        st.divider()
+        render_hitl_controls(review)
 
 
 if __name__ == "__main__":
     main()
+

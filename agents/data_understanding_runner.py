@@ -1,4 +1,5 @@
-﻿import json
+﻿import asyncio
+import json
 from typing import Any
 
 from google.adk.runners import Runner
@@ -75,24 +76,22 @@ def _parse_review(response_text: str) -> DataUnderstandingReview:
     return DataUnderstandingReview.model_validate(payload)
 
 
-def run_data_understanding_agent(
+async def _run_data_understanding_agent(
     prompt: str,
     *,
-    user_id: str = DEFAULT_USER_ID,
-    session_id: str = "data_understanding",
-    session_service: InMemorySessionService | None = None,
+    user_id: str,
+    session_id: str,
+    session_service: InMemorySessionService,
 ) -> DataUnderstandingReview:
-    """Execute the Data Understanding Agent and validate its review."""
+    """Create the session and execute the agent."""
 
-    service = session_service or InMemorySessionService()
-
-    service.create_session(
+    await session_service.create_session(
         app_name=APP_NAME,
         user_id=user_id,
         session_id=session_id,
     )
 
-    runner = _build_runner(service)
+    runner = _build_runner(session_service)
 
     message = types.Content(
         role="user",
@@ -114,3 +113,24 @@ def run_data_understanding_agent(
     response_text = _extract_text(events)
 
     return _parse_review(response_text)
+
+
+def run_data_understanding_agent(
+    prompt: str,
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    session_id: str = "data_understanding",
+    session_service: InMemorySessionService | None = None,
+) -> DataUnderstandingReview:
+    """Execute the Data Understanding Agent and validate its review."""
+
+    service = session_service or InMemorySessionService()
+
+    return asyncio.run(
+        _run_data_understanding_agent(
+            prompt,
+            user_id=user_id,
+            session_id=session_id,
+            session_service=service,
+        )
+    )
