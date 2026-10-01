@@ -31,6 +31,10 @@ def test_revision_request_returns_to_revision():
         decision="request_revision",
         reviewer="data_scientist",
         rationale="Additional explanation is required.",
+        feedback=[
+            "Clarify the duplicate identifier finding.",
+            "Investigate missing revenue values.",
+        ],
     )
 
     assert transition_after_hitl(decision) == "revision"

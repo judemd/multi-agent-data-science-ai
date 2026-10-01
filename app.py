@@ -568,6 +568,12 @@ def render_hitl_controls(
         key="data_understanding_review_rationale",
     )
 
+    feedback_text = st.text_area(
+        "Requested changes / feedback",
+        placeholder="Required when requesting a revision.",
+        key="data_understanding_feedback",
+    )
+
     approve_column, revision_column, reject_column = st.columns(3)
 
     with approve_column:
@@ -603,10 +609,26 @@ def render_hitl_controls(
         st.warning("Enter a rationale before submitting a decision.")
         return
 
+    feedback = []
+
+    if decision_value == "request_revision":
+        feedback = [
+            item.strip()
+            for item in feedback_text.splitlines()
+            if item.strip()
+        ]
+
+        if not feedback:
+            st.warning(
+                "Provide at least one requested change before requesting a revision."
+            )
+            return
+
     decision = HITLDecision(
         decision=decision_value,
         reviewer=reviewer.strip(),
         rationale=rationale.strip(),
+        feedback=feedback,
     )
 
     next_state = evaluate_and_transition_data_understanding(
@@ -630,6 +652,7 @@ def render_hitl_controls(
         st.error(
             "The workflow is blocked by the current human review decision."
         )
+
 
 def main() -> None:
     """Render the main application."""
