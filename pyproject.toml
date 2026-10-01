@@ -4,10 +4,16 @@ version = "0.1.0"
 description = "Human-in-the-loop multi-agent data science workflow using Google ADK and Vertex AI."
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "dtale>=3.22.0",
     "google-adk>=2.10.0",
+    "numpy>=2.4.6",
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.6",
     "pydantic>=2.13.5",
     "pytest>=9.1.1",
     "ruff>=0.16.9",
+    "scikit-learn>=1.9.1",
+    "scipy>=1.17.1",
 ]
 
 [tool.pytest.ini_options]
