@@ -1,26 +1,47 @@
-﻿import pandas as pd
+﻿import json
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
+from pydantic import ValidationError
+
+load_dotenv()
 
 from domain.data_understanding import DataUnderstandingArtifact
 from domain.data_understanding_review import DataUnderstandingReview
 from domain.hitl_decision import HITLDecision
+from domain.project_state import ProjectState
 from tools.data_loader import (
     UnsupportedFileTypeError,
     load_uploaded_dataset,
 )
 from tools.data_profiler import profile_dataframe
+from tools.project_store import ProjectStore
+from ui_data_preparation import (
+    render_data_preparation_hitl_controls,
+    render_data_preparation_review,
+)
+from ui_modeling import (
+    render_modeling_hitl_controls,
+    render_modeling_review,
+)
+from workflow.data_preparation_stage import (
+    run_data_preparation_stage_for_project,
+)
 from workflow.data_understanding_stage import (
     run_data_understanding_stage_with_artifact,
 )
 from workflow.data_understanding_transitions import (
     evaluate_and_transition_data_understanding,
 )
+from workflow.modeling_stage import run_modeling_stage_for_project
+from workflow.states import WorkflowState
 
 st.set_page_config(
     page_title="Multi-Agent Data Science AI",
     layout="wide",
 )
-
 
 MASKED_COLUMN_TERMS = (
     "account",
@@ -31,6 +52,288 @@ MASKED_COLUMN_TERMS = (
     "postal",
     "address",
 )
+
+PROJECT_STORE = ProjectStore()
+PERSISTENCE_DIR = Path("data/projects")
+ACTIVE_STATE_PATH = PERSISTENCE_DIR / "active_state.json"
+ACTIVE_DATASET_PREFIX = "active_dataset"
+
+
+def _model_to_json(value: object) -> str | None:
+    """Serialize a Pydantic model when one is present."""
+
+    if value is None:
+        return None
+
+    return value.model_dump_json()
+
+
+def _model_from_json(
+    value: str | None,
+    model_type: type,
+) -> object | None:
+    """Restore a Pydantic model from persisted JSON."""
+
+    if not value:
+        return None
+
+    return model_type.model_validate_json(value)
+
+
+def _persist_uploaded_dataset(uploaded_file: object) -> Path:
+    """Persist the active dataset so it survives browser refreshes."""
+
+    PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
+
+    suffix = Path(uploaded_file.name).suffix.lower()
+    dataset_path = PERSISTENCE_DIR / f"{ACTIVE_DATASET_PREFIX}{suffix}"
+
+    for existing_path in PERSISTENCE_DIR.glob(f"{ACTIVE_DATASET_PREFIX}.*"):
+        if existing_path != dataset_path and existing_path.exists():
+            existing_path.unlink()
+
+    dataset_path.write_bytes(uploaded_file.getvalue())
+
+    st.session_state["persisted_dataset_path"] = str(dataset_path)
+    st.session_state["persisted_dataset_name"] = uploaded_file.name
+
+    return dataset_path
+
+
+def _persist_active_state() -> None:
+    """Persist the active project and UI state."""
+
+    PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
+
+    project = st.session_state.get("project_state")
+
+    payload = {
+        "project_id": (
+            project.project_id
+                if project is not None
+                else st.session_state.get("project_id")
+        ),
+        "business_context": {
+            key: st.session_state.get(key, "")
+            for key in (
+                "business_problem",
+                "business_objective",
+                "desired_outcome",
+                "success_metrics",
+                "constraints",
+                "risks",
+            )
+        },
+        "target_column": st.session_state.get("target_column"),
+        "persisted_dataset_path": st.session_state.get(
+            "persisted_dataset_path"
+        ),
+        "persisted_dataset_name": st.session_state.get(
+            "persisted_dataset_name"
+        ),
+        "data_understanding_review": _model_to_json(
+            st.session_state.get("data_understanding_review")
+        ),
+        "data_understanding_artifact": _model_to_json(
+            st.session_state.get("data_understanding_artifact")
+        ),
+        "data_understanding_decision": _model_to_json(
+            st.session_state.get("data_understanding_decision")
+        ),
+        "data_understanding_state": st.session_state.get(
+            "data_understanding_state"
+        ),
+        "data_understanding_file_name": st.session_state.get(
+            "data_understanding_file_name"
+        ),
+        "data_understanding_reviewer": st.session_state.get(
+            "data_understanding_reviewer", ""
+        ),
+        "data_understanding_review_rationale": st.session_state.get(
+            "data_understanding_review_rationale", ""
+        ),
+        "data_understanding_feedback": st.session_state.get(
+            "data_understanding_feedback", ""
+        ),
+    }
+
+    ACTIVE_STATE_PATH.write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+
+    if project is not None:
+        PROJECT_STORE.save(project)
+
+
+def _restore_persisted_state() -> None:
+    """Restore the active workflow after a browser refresh."""
+
+    if st.session_state.get("persistence_restored"):
+        return
+
+    st.session_state["persistence_restored"] = True
+
+    if not ACTIVE_STATE_PATH.exists():
+        return
+
+    try:
+        payload = json.loads(
+            ACTIVE_STATE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return
+
+    for key, value in payload.get("business_context", {}).items():
+        st.session_state[key] = value
+
+    st.session_state["target_column"] = payload.get("target_column")
+    st.session_state["persisted_dataset_path"] = payload.get(
+        "persisted_dataset_path"
+    )
+    st.session_state["persisted_dataset_name"] = payload.get(
+        "persisted_dataset_name"
+    )
+
+    for key in (
+        "data_understanding_reviewer",
+        "data_understanding_review_rationale",
+        "data_understanding_feedback",
+    ):
+        st.session_state[key] = payload.get(key, "")
+
+    st.session_state["data_understanding_file_name"] = payload.get(
+        "data_understanding_file_name"
+    )
+    st.session_state["data_understanding_state"] = payload.get(
+        "data_understanding_state"
+    )
+
+    review = _model_from_json(
+        payload.get("data_understanding_review"),
+        DataUnderstandingReview,
+    )
+    artifact = _model_from_json(
+        payload.get("data_understanding_artifact"),
+        DataUnderstandingArtifact,
+    )
+    decision = _model_from_json(
+        payload.get("data_understanding_decision"),
+        HITLDecision,
+    )
+
+    if review is not None:
+        st.session_state["data_understanding_review"] = review
+    if artifact is not None:
+        st.session_state["data_understanding_artifact"] = artifact
+    if decision is not None:
+        st.session_state["data_understanding_decision"] = decision
+
+    project_id = payload.get("project_id")
+    if project_id:
+        try:
+            st.session_state["project_state"] = PROJECT_STORE.load(
+                project_id
+            )
+        except FileNotFoundError:
+            return
+        except ValidationError:
+            st.session_state.pop("project_state", None)
+            st.session_state["persistence_restore_error"] = (
+                "The previous project could not be restored because "
+                "it was saved using an older project format. "
+                "The saved session has been cleared. "
+                "You can start a new project."
+            )
+
+            try:
+                ACTIVE_STATE_PATH.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            return
+
+
+def _load_persisted_dataframe() -> pd.DataFrame | None:
+    """Load the active persisted dataset, if one exists."""
+
+    dataset_path = st.session_state.get("persisted_dataset_path")
+
+    if not dataset_path:
+        return None
+
+    path = Path(dataset_path)
+    if not path.exists():
+        return None
+
+    try:
+        return load_uploaded_dataset(
+            path.name,
+            path.read_bytes(),
+        )
+    except (UnsupportedFileTypeError, ValueError, OSError):
+        return None
+
+
+def _start_over() -> None:
+    """Delete persisted workflow state and reset the application."""
+
+    project = st.session_state.get("project_state")
+
+    if project is not None:
+        PROJECT_STORE.delete(project.project_id)
+
+    if ACTIVE_STATE_PATH.exists():
+        ACTIVE_STATE_PATH.unlink()
+
+    for dataset_path in PERSISTENCE_DIR.glob(f"{ACTIVE_DATASET_PREFIX}.*"):
+        if dataset_path.exists():
+            dataset_path.unlink()
+
+    st.session_state.clear()
+    st.rerun()
+
+
+
+def render_global_start_over() -> None:
+    """Render a global Start Over control for an active project."""
+
+    if st.session_state.get("project_state") is None:
+        return
+
+    if not st.session_state.get("start_over_confirmation", False):
+        if st.button(
+            "Start Over",
+            key="global_start_over",
+        ):
+            st.session_state["start_over_confirmation"] = True
+            st.rerun()
+
+        return
+
+    st.warning(
+        "Starting over will clear the current project, dataset, reviews, "
+        "decisions, and workflow state. This cannot be undone."
+    )
+
+    cancel_column, confirm_column = st.columns(2)
+
+    with cancel_column:
+        if st.button(
+            "Cancel",
+            key="cancel_start_over",
+        ):
+            st.session_state["start_over_confirmation"] = False
+            st.rerun()
+
+    with confirm_column:
+        if st.button(
+            "Start Over",
+            type="primary",
+            key="confirm_start_over",
+        ):
+            _start_over()
+
 
 
 def render_workflow() -> None:
@@ -57,63 +360,61 @@ def render_business_context() -> dict[str, object]:
 
     st.subheader("Business Context")
 
-    business_problem = st.text_area(
-        "Business problem *",
-        placeholder=(
-            "Describe the business problem the data science project "
-            "should address."
-        ),
-    )
+    project_exists = st.session_state.get("project_state") is not None
 
-    business_objective = st.text_area(
-        "Business objective *",
-        placeholder=(
-            "What business objective should the analysis support?"
+    fields = {
+        "business_problem": (
+            "Business problem *",
+            "Describe the business problem the data science project should address.",
         ),
-    )
-
-    desired_outcome = st.text_area(
-        "Desired business outcome *",
-        placeholder=(
-            "What should improve or become possible if the project succeeds?"
+        "business_objective": (
+            "Business objective *",
+            "What business objective should the analysis support?",
         ),
-    )
-
-    success_metrics = st.text_area(
-        "Success metrics",
-        placeholder=(
-            "Describe measurable criteria that would indicate success."
+        "desired_outcome": (
+            "Desired business outcome *",
+            "What should improve or become possible if the project succeeds?",
         ),
-    )
-
-    constraints = st.text_area(
-        "Known constraints",
-        placeholder=(
-            "Business, operational, technical, regulatory, or resource constraints."
+        "success_metrics": (
+            "Success metrics",
+            "Describe measurable criteria that would indicate success.",
         ),
-    )
-
-    risks = st.text_area(
-        "Known risks",
-        placeholder=(
-            "Known risks, concerns, or assumptions that should be investigated."
+        "constraints": (
+            "Known constraints",
+            "Business, operational, technical, regulatory, or resource constraints.",
         ),
-    )
-
-    return {
-        "business_problem": business_problem,
-        "business_objective": business_objective,
-        "desired_outcome": desired_outcome,
-        "success_metrics": success_metrics,
-        "constraints": constraints,
-        "risks": risks,
+        "risks": (
+            "Known risks",
+            "Known risks, concerns, or assumptions that should be investigated.",
+        ),
     }
+
+    values: dict[str, object] = {}
+
+    for key, (label, placeholder) in fields.items():
+        st.session_state.setdefault(key, "")
+        values[key] = st.text_area(
+            label,
+            placeholder=placeholder,
+            key=key,
+            disabled=project_exists,
+        )
+
+    return values
 
 
 def render_dataset_upload() -> object:
-    """Display the dataset uploader and return the uploaded file."""
+    """Display the dataset uploader or the persisted active dataset."""
 
     st.subheader("Dataset")
+
+    project = st.session_state.get("project_state")
+    persisted_path = st.session_state.get("persisted_dataset_path")
+    persisted_name = st.session_state.get("persisted_dataset_name")
+
+    if project is not None and persisted_path:
+        st.info(f"Active dataset: {persisted_name or Path(persisted_path).name}")
+        return None
 
     uploaded_file = st.file_uploader(
         "Upload dataset *",
@@ -123,6 +424,11 @@ def render_dataset_upload() -> object:
 
     if uploaded_file is not None:
         st.write(f"**File:** {uploaded_file.name}")
+        _persist_uploaded_dataset(uploaded_file)
+    elif persisted_path and Path(persisted_path).exists():
+        st.info(
+            f"Persisted dataset: {persisted_name or Path(persisted_path).name}"
+        )
 
     return uploaded_file
 
@@ -265,9 +571,17 @@ def render_target_selection(
 
     options = ["None"] + candidates
 
+    persisted_target = st.session_state.get("target_column")
+    if persisted_target not in options:
+        persisted_target = "None"
+
+    st.session_state.setdefault("target_column", persisted_target)
+
     selected_target = st.selectbox(
         "Target column (optional)",
         options,
+        index=options.index(persisted_target),
+        key="target_column",
         help=(
             "Select a binary 0/1 target when target-aware EDA is required. "
             "The application does not infer the business target automatically."
@@ -639,6 +953,12 @@ def render_hitl_controls(
     st.session_state["data_understanding_decision"] = decision
     st.session_state["data_understanding_state"] = next_state
 
+    project = st.session_state.get("project_state")
+
+    if project is not None and next_state == "next_stage":
+        project.current_state = WorkflowState.DATA_PREPARATION
+        st.session_state["project_state"] = project
+
     if next_state == "next_stage":
         st.success(
             "Human approval recorded. Data Understanding may progress "
@@ -657,6 +977,8 @@ def render_hitl_controls(
 def main() -> None:
     """Render the main application."""
 
+    _restore_persisted_state()
+
     st.title("Multi-Agent Data Science AI")
     st.caption(
         "Turn a business problem and dataset into an "
@@ -664,6 +986,8 @@ def main() -> None:
     )
 
     st.divider()
+
+    render_global_start_over()
 
     left_column, right_column = st.columns(2)
 
@@ -673,32 +997,44 @@ def main() -> None:
     with right_column:
         uploaded_file = render_dataset_upload()
 
+    _persist_active_state()
+
     st.divider()
 
     render_workflow()
 
-    if uploaded_file is None:
-        return
+    if uploaded_file is not None:
+        try:
+            dataframe = load_uploaded_dataframe(
+                uploaded_file,
+            )
+        except UnsupportedFileTypeError as exc:
+            st.error(str(exc))
+            return
+        except (ValueError, OSError) as exc:
+            st.error(f"Unable to load dataset: {exc}")
+            return
+    else:
+        dataframe = _load_persisted_dataframe()
 
-    try:
-        dataframe = load_uploaded_dataframe(
-            uploaded_file,
+    if dataframe is None:
+        st.warning(
+            "DEBUG: persisted dataset could not be loaded."
         )
-    except UnsupportedFileTypeError as exc:
-        st.error(str(exc))
-        return
-    except (ValueError, OSError) as exc:
-        st.error(f"Unable to load dataset: {exc}")
         return
 
     st.divider()
 
     render_dataset_preview(dataframe)
     target_column = render_target_selection(dataframe)
+    
+    _persist_active_state()
 
     st.divider()
 
-    if st.button(
+    project = st.session_state.get("project_state")
+
+    if project is None and st.button(
         "Analyze Dataset",
         type="primary",
     ):
@@ -719,6 +1055,24 @@ def main() -> None:
             )
             return
 
+        dataset_path = st.session_state.get("persisted_dataset_path")
+        dataset_name = st.session_state.get("persisted_dataset_name")
+
+        if not dataset_path or not dataset_name:
+            st.error("The uploaded dataset could not be persisted.")
+            return
+
+        project = ProjectState(
+            project_id=f"project-{dataset_name}",
+            project_name=business_context["business_problem"],
+            dataset_path=dataset_path,
+        )
+
+        st.session_state["project_state"] = project
+        st.session_state["project_id"] = project.project_id
+        PROJECT_STORE.save(project)
+        _persist_active_state()
+
         with st.spinner(
             "Preparing deterministic evidence and running the "
             "Data Understanding Agent..."
@@ -726,7 +1080,7 @@ def main() -> None:
             try:
                 artifact = profile_dataframe(
                     dataframe,
-                    file_name=uploaded_file.name,
+                    file_name=dataset_name,
                 )
 
                 stage_result = run_data_understanding_stage_with_artifact(
@@ -751,7 +1105,10 @@ def main() -> None:
 
         st.session_state["data_understanding_review"] = review
         st.session_state["data_understanding_artifact"] = artifact
-        st.session_state["data_understanding_file_name"] = uploaded_file.name
+        st.session_state["data_understanding_file_name"] = dataset_name
+        _persist_active_state()
+
+        st.rerun()
 
     artifact = st.session_state.get("data_understanding_artifact")
     review = st.session_state.get("data_understanding_review")
@@ -769,8 +1126,141 @@ def main() -> None:
 
         st.divider()
         render_hitl_controls(review)
+        _persist_active_state()
+
+    project = st.session_state.get("project_state")
+
+    st.write(
+        "DEBUG:",
+        project is not None,
+        project.current_state if project is not None else None,
+        project.data_preparation is None if project is not None else None,
+    )
+
+    if (
+        project is not None
+        and project.current_state == WorkflowState.DATA_PREPARATION
+        and project.data_preparation is None
+    ):
+        with st.spinner(
+            "Preparing deterministic evidence and running the "
+            "Data Preparation Agent..."
+        ):
+            try:
+                project = run_data_preparation_stage_for_project(
+                    project,
+                    dataframe,
+                    st.session_state.get(
+                        "persisted_dataset_name",
+                        Path(project.dataset_path).name,
+                    ),
+                )
+            except ValueError as exc:
+                st.error(
+                    f"Unable to complete Data Preparation: {exc}"
+                )
+                return
+            except OSError as exc:
+                st.error(
+                    f"Unable to complete Data Preparation: {exc}"
+                )
+                return
+
+        st.session_state["project_state"] = project
+        PROJECT_STORE.save(project)
+        _persist_active_state()
+
+    if (
+        project is not None
+        and project.data_preparation_review is not None
+    ):
+        st.divider()
+
+        render_data_preparation_review(
+            project.data_preparation_review,
+        )
+
+        st.divider()
+
+        render_data_preparation_hitl_controls(
+            project,
+        )
+        _persist_active_state()
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
+        and project.current_state == WorkflowState.MODELING
+        and project.modeling is None
+        and project.modeling_review is None
+    ):
+        modeling_target = st.session_state.get("target_column")
+
+        if not modeling_target:
+            st.warning(
+                "Select a target column before Modeling can begin. "
+                "The target is required for deterministic Modeling evidence."
+            )
+            return
+
+        dataset_name = st.session_state.get(
+            "persisted_dataset_name",
+            Path(project.dataset_path).name,
+        )
+
+        with st.spinner(
+            "Preparing deterministic evidence and running the "
+            "Modeling Agent..."
+        ):
+            try:
+                project = run_modeling_stage_for_project(
+                    project,
+                    dataframe,
+                    modeling_target,
+                    dataset_name,
+                )
+            except ValueError as exc:
+                st.error(
+                    f"Unable to complete Modeling: {exc}"
+                )
+                return
+            except OSError as exc:
+                st.error(
+                    f"Unable to complete Modeling: {exc}"
+                )
+                return
+
+        st.session_state["project_state"] = project
+        PROJECT_STORE.save(project)
+        _persist_active_state()
+        st.rerun()
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
+        and project.modeling_review is not None
+    ):
+        st.divider()
+
+        render_modeling_review(
+            project.modeling_review,
+        )
+
+        if project.current_state in (
+            WorkflowState.AWAITING_MODEL_SELECTION,
+            WorkflowState.BLOCKED,
+        ):
+            st.divider()
+
+            render_modeling_hitl_controls(
+                project,
+            )
+
+        _persist_active_state()
+
 
 
 if __name__ == "__main__":
     main()
-

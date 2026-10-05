@@ -18,6 +18,14 @@ TRANSITIONS: dict[
         WorkflowState.AWAITING_PROBLEM_APPROVAL,
         HumanDecision.REQUEST_CHANGES,
     ): WorkflowState.PROBLEM_FRAMING,
+    (
+        WorkflowState.AWAITING_PREPARATION_APPROVAL,
+        HumanDecision.APPROVE,
+    ): WorkflowState.MODELING,
+    (
+        WorkflowState.AWAITING_PREPARATION_APPROVAL,
+        HumanDecision.REQUEST_CHANGES,
+    ): WorkflowState.DATA_PREPARATION,
 }
 
 

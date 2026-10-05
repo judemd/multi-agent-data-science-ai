@@ -15,6 +15,7 @@ def test_workflow_contains_expected_states():
         "AWAITING_GO_NO_GO",
         "FINALIZATION",
         "AWAITING_HANDOFF_APPROVAL",
+        "BLOCKED",
         "COMPLETE",
     }
 

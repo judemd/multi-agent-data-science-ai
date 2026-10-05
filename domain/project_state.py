@@ -2,6 +2,11 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
+from domain.data_preparation import DataPreparationArtifact
+from domain.data_preparation_review import DataPreparationReview
+from domain.hitl_decision import HITLDecision
+from domain.modeling import ModelingArtifact
+from domain.modeling_review import ModelingReview
 from domain.problem_framing import ProblemFramingArtifact
 from workflow.states import WorkflowState
 
@@ -16,6 +21,14 @@ class ProjectState(BaseModel):
 
     dataset_path: str | None = None
     problem_framing: ProblemFramingArtifact | None = None
+
+    data_preparation: DataPreparationArtifact | None = None
+    data_preparation_review: DataPreparationReview | None = None
+    data_preparation_decision: HITLDecision | None = None
+
+    modeling: ModelingArtifact | None = None
+    modeling_review: ModelingReview | None = None
+    modeling_decision: HITLDecision | None = None
 
     revision: int = Field(default=1, ge=1)
 

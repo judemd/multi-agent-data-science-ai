@@ -29,3 +29,10 @@ class ProjectStore:
         return ProjectState.model_validate_json(
             path.read_text(encoding="utf-8")
         )
+
+    def delete(self, project_id: str) -> None:
+        """Delete a persisted project if it exists."""
+        path = self.storage_dir / f"{project_id}.json"
+
+        if path.exists():
+            path.unlink()

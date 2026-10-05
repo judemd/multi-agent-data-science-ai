@@ -76,7 +76,7 @@ to the next workflow stage.
 data_understanding_agent = Agent(
     name="data_understanding_agent",
     model=Gemini(
-        model="gemini-2.5-flash",
+        model="gemini-3.5-flash",
     ),
     instruction=DATA_UNDERSTANDING_INSTRUCTION,
 )
