@@ -1,4 +1,5 @@
 import pytest
+import pandas as pd
 
 from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_action import DataPreparationAction
@@ -40,11 +41,19 @@ def build_decision(decision: str) -> HITLDecision:
         rationale="Decision based on the preparation review.",
     )
 
+def build_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": [1, 2, 2],
+            "revenue": [10.0, None, 20.0],
+        }
+    )
 
 def test_approval_moves_project_to_modeling():
     project = apply_data_preparation_decision(
         build_project(),
         build_decision("approve"),
+        build_dataframe(),
     )
 
     assert project.current_state == WorkflowState.MODELING
@@ -103,6 +112,7 @@ def test_review_requiring_human_review_can_progress_after_approval():
     project = apply_data_preparation_decision(
         project,
         build_decision("approve"),
+        build_dataframe(),
     )
 
     assert project.current_state == WorkflowState.MODELING
@@ -129,5 +139,27 @@ def test_revision_clears_previous_data_preparation_review():
     assert updated.current_state == WorkflowState.DATA_PREPARATION
     assert updated.data_preparation is None
     assert updated.data_preparation_review is None
+
+def test_approval_does_not_progress_when_execution_fails():
+    project = build_project()
+
+    project.data_preparation_review.proposed_actions[0].operation = (
+        "unsupported_operation"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported data preparation operation",
+    ):
+        apply_data_preparation_decision(
+            project,
+            build_decision("approve"),
+            build_dataframe(),
+        )
+
+    assert project.current_state == (
+        WorkflowState.AWAITING_PREPARATION_APPROVAL
+    )
+    assert project.prepared_dataset_path is None
 
 

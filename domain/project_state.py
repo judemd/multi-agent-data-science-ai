@@ -20,6 +20,7 @@ class ProjectState(BaseModel):
     current_state: WorkflowState = WorkflowState.PROBLEM_FRAMING
 
     dataset_path: str | None = None
+    prepared_dataset_path: str | None = None
     problem_framing: ProblemFramingArtifact | None = None
 
     data_preparation: DataPreparationArtifact | None = None

@@ -69,7 +69,8 @@ def test_data_preparation_artifact_and_review_survive_save_and_load(tmp_path):
         data_preparation=artifact,
         data_preparation_review=review,
     )
-
+    original.prepared_dataset_path = "data/projects/prepared_dataset.csv"
+    
     store.save(original)
 
     loaded = store.load("project-002")
@@ -77,6 +78,10 @@ def test_data_preparation_artifact_and_review_survive_save_and_load(tmp_path):
     assert loaded.current_state == WorkflowState.AWAITING_PREPARATION_APPROVAL
     assert loaded.data_preparation == artifact
     assert loaded.data_preparation_review == review
+    assert (
+        loaded.prepared_dataset_path
+        == "data/projects/prepared_dataset.csv"
+    )
 
 
 def test_data_preparation_decision_survives_save_and_load(tmp_path):

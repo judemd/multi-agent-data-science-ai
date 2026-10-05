@@ -274,6 +274,26 @@ def _load_persisted_dataframe() -> pd.DataFrame | None:
     except (UnsupportedFileTypeError, ValueError, OSError):
         return None
 
+def _load_prepared_dataframe(
+    prepared_dataset_path: str | None,
+) -> pd.DataFrame | None:
+    """Load the prepared dataset produced by Data Preparation."""
+
+    if not prepared_dataset_path:
+        return None
+
+    path = Path(prepared_dataset_path)
+
+    if not path.exists():
+        return None
+
+    try:
+        return load_uploaded_dataset(
+            path.name,
+            path.read_bytes(),
+        )
+    except (UnsupportedFileTypeError, ValueError, OSError):
+        return None
 
 def _start_over() -> None:
     """Delete persisted workflow state and reset the application."""
@@ -1172,6 +1192,8 @@ def main() -> None:
 
     if (
         project is not None
+        and project.current_state
+        == WorkflowState.AWAITING_PREPARATION_APPROVAL
         and project.data_preparation_review is not None
     ):
         st.divider()
@@ -1184,6 +1206,7 @@ def main() -> None:
 
         render_data_preparation_hitl_controls(
             project,
+            dataframe,
         )
         _persist_active_state()
 
@@ -1214,17 +1237,29 @@ def main() -> None:
             "Modeling Agent..."
         ):
             try:
+                prepared_dataframe = _load_prepared_dataframe(
+                    project.prepared_dataset_path
+                )
+
+                if prepared_dataframe is None:
+                    st.error(
+                        "The prepared dataset could not be loaded for Modeling."
+                    )
+                    return
+
                 project = run_modeling_stage_for_project(
                     project,
-                    dataframe,
+                    prepared_dataframe,
                     modeling_target,
-                    dataset_name,
+                    Path(project.prepared_dataset_path).name,
                 )
+
             except ValueError as exc:
                 st.error(
                     f"Unable to complete Modeling: {exc}"
                 )
                 return
+
             except OSError as exc:
                 st.error(
                     f"Unable to complete Modeling: {exc}"

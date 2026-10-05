@@ -1,4 +1,9 @@
 ﻿import streamlit as st
+import pandas as pd
+
+from tools.data_preparation_executor import (
+    execute_data_preparation_actions,
+)
 
 from domain.data_preparation_review import DataPreparationReview
 from domain.hitl_decision import HITLDecision
@@ -76,6 +81,7 @@ def render_data_preparation_review(
 
 def render_data_preparation_hitl_controls(
     project,
+    dataframe,
 ) -> None:
     """Collect and apply the human Data Preparation decision."""
 
@@ -202,6 +208,7 @@ def render_data_preparation_hitl_controls(
         apply_data_preparation_decision(
             project,
             decision,
+            dataframe,
         )
     except ValueError as exc:
         st.error(str(exc))
