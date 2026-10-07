@@ -1,6 +1,17 @@
-﻿import pandas as pd
+import pandas as pd
 
 from domain.data_preparation import DataPreparationArtifact
+from tools.data_quality import (
+    detect_numeric_like_columns,
+    detect_potential_identifier_columns,
+)
+from tools.data_preparation_issue_detector import (
+    detect_categorical_inconsistency_issues,
+    detect_exact_duplicate_issues,
+    detect_identifier_issues,
+    detect_missing_value_issues,
+    detect_numeric_conversion_issues,
+)
 
 
 def build_data_preparation_evidence(
@@ -15,7 +26,7 @@ def build_data_preparation_evidence(
         if int(dataframe[column].isna().sum()) > 0
     }
 
-    numeric_like_columns: dict[str, dict[str, float | int]] = {}
+    numeric_like_columns = detect_numeric_like_columns(dataframe)
 
     categorical_inconsistencies: dict[str, dict[str, list[str]]] = {}
 
@@ -25,7 +36,7 @@ def build_data_preparation_evidence(
 
     candidate_date_columns: list[str] = []
 
-    potential_identifier_columns: list[str] = []
+    potential_identifier_columns = detect_potential_identifier_columns(dataframe)
 
     outlier_summary: dict[str, dict[str, float | int]] = {}
 
@@ -74,7 +85,9 @@ def build_data_preparation_evidence(
             if numeric_ratio >= 0.8:
                 numeric_like_columns[column] = {
                     "non_null_count": len(non_null),
-                    "numeric_like_count": int(numeric_conversion.notna().sum()),
+                    "numeric_like_count": int(
+                        numeric_conversion.notna().sum()
+                    ),
                     "numeric_like_ratio": numeric_ratio,
                 }
 
@@ -114,17 +127,6 @@ def build_data_preparation_evidence(
 
             if date_ratio >= 0.8:
                 candidate_date_columns.append(column)
-
-        non_null_count = int(series.notna().sum())
-
-        if (
-            pd.api.types.is_string_dtype(series)
-            and non_null_count > 0
-        ):
-            unique_count = int(series.nunique(dropna=True))
-
-            if unique_count / non_null_count >= 0.95:
-                potential_identifier_columns.append(column)
 
     preparation_questions: list[str] = []
 
@@ -172,6 +174,14 @@ def build_data_preparation_evidence(
             "repeated observations?"
         )
 
+    issues = [
+        *detect_missing_value_issues(dataframe),
+        *detect_categorical_inconsistency_issues(dataframe),
+        *detect_numeric_conversion_issues(dataframe),
+        *detect_exact_duplicate_issues(dataframe),
+        *detect_identifier_issues(dataframe),
+    ]
+
     return DataPreparationArtifact(
         file_name=file_name,
         row_count=len(dataframe),
@@ -191,4 +201,18 @@ def build_data_preparation_evidence(
         potential_identifier_columns=potential_identifier_columns,
         duplicate_row_count=duplicate_row_count,
         preparation_questions=preparation_questions,
+        issues=issues,
     )
+
+
+
+
+
+
+
+
+
+
+
+
+

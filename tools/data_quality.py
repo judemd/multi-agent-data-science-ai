@@ -249,3 +249,72 @@ def detect_string_formatting_issues(
         "leading_or_trailing_whitespace_count": whitespace_count,
         "case_inconsistency_count": casing_count,
     }
+
+
+def detect_potential_identifier_columns(
+    dataframe: pd.DataFrame,
+    threshold: float = 0.95,
+    min_non_null_count: int = 20,
+) -> list[str]:
+    """Detect high-cardinality string columns that may be identifiers."""
+
+    if not 0 < threshold <= 1:
+        raise ValueError("threshold must be greater than 0 and at most 1.")
+
+    if min_non_null_count < 1:
+        raise ValueError("min_non_null_count must be at least 1.")
+
+    identifier_columns: list[str] = []
+
+    for column in dataframe.columns:
+        series = dataframe[column]
+
+        if not pd.api.types.is_string_dtype(series):
+            continue
+
+        non_null_count = int(series.notna().sum())
+
+        if non_null_count < min_non_null_count:
+            continue
+
+        unique_count = int(series.nunique(dropna=True))
+
+        if unique_count / non_null_count >= threshold:
+            identifier_columns.append(column)
+
+    return identifier_columns
+
+
+def detect_potential_identifier_columns(
+    dataframe: pd.DataFrame,
+    threshold: float = 0.95,
+    min_non_null_count: int = 20,
+) -> list[str]:
+    """Detect high-cardinality string columns that may be identifiers."""
+
+    if not 0 < threshold <= 1:
+        raise ValueError("threshold must be greater than 0 and at most 1.")
+
+    if min_non_null_count < 1:
+        raise ValueError("min_non_null_count must be at least 1.")
+
+    identifier_columns: list[str] = []
+
+    for column in dataframe.columns:
+        series = dataframe[column]
+
+        if not pd.api.types.is_string_dtype(series):
+            continue
+
+        non_null_count = int(series.notna().sum())
+
+        if non_null_count < min_non_null_count:
+            continue
+
+        unique_count = int(series.nunique(dropna=True))
+
+        if unique_count / non_null_count >= threshold:
+            identifier_columns.append(column)
+
+    return identifier_columns
+

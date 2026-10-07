@@ -8,6 +8,7 @@ from tools.data_quality import (
     detect_iqr_outliers,
     detect_numeric_like_columns,
     detect_string_formatting_issues,
+    detect_potential_identifier_columns,
     find_duplicate_values,
 )
 
@@ -387,4 +388,111 @@ def test_formatting_detector_raises_for_unknown_column():
         detect_string_formatting_issues(
             dataframe,
             "unknown_column",
+        )
+
+
+def test_detects_potential_identifier_column():
+    dataframe = pd.DataFrame(
+        {
+            "customer_id": [
+                "C001",
+                "C002",
+                "C003",
+                "C004",
+            ],
+            "segment": [
+                "Consumer",
+                "Business",
+                "Consumer",
+                "Business",
+            ],
+        }
+    )
+
+    result = detect_potential_identifier_columns(
+        dataframe,
+        min_non_null_count=1,
+    )
+
+    assert result == ["customer_id"]
+
+
+def test_identifier_detection_respects_threshold():
+    dataframe = pd.DataFrame(
+        {
+            "reference": [
+                "A",
+                "B",
+                "C",
+                "D",
+                "D",
+            ],
+        }
+    )
+
+    result = detect_potential_identifier_columns(
+        dataframe,
+        threshold=0.95,
+        min_non_null_count=1,
+    )
+
+    assert result == []
+
+
+def test_numeric_column_is_not_potential_identifier():
+    dataframe = pd.DataFrame(
+        {
+            "customer_number": [1001, 1002, 1003, 1004],
+        }
+    )
+
+    result = detect_potential_identifier_columns(dataframe)
+
+    assert result == []
+
+
+def test_identifier_detection_rejects_invalid_threshold():
+    dataframe = pd.DataFrame(
+        {
+            "customer_id": ["C001", "C002"],
+        }
+    )
+
+    with pytest.raises(ValueError):
+        detect_potential_identifier_columns(dataframe, threshold=0)
+
+    with pytest.raises(ValueError):
+        detect_potential_identifier_columns(dataframe, threshold=1.1)
+
+
+
+
+
+def test_identifier_detection_ignores_tiny_high_cardinality_sample_by_default():
+    dataframe = pd.DataFrame(
+        {
+            "contract_type": [
+                "Monthly",
+                "Annual",
+                "Two Year",
+            ],
+        }
+    )
+
+    result = detect_potential_identifier_columns(dataframe)
+
+    assert result == []
+
+
+def test_identifier_detection_rejects_invalid_min_non_null_count():
+    dataframe = pd.DataFrame(
+        {
+            "customer_id": ["C001", "C002"],
+        }
+    )
+
+    with pytest.raises(ValueError):
+        detect_potential_identifier_columns(
+            dataframe,
+            min_non_null_count=0,
         )

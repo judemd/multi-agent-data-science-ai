@@ -1,4 +1,6 @@
-﻿from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field
+
+from domain.data_preparation_issue import DataPreparationIssue
 
 
 class DataPreparationArtifact(BaseModel):
@@ -82,4 +84,12 @@ class DataPreparationArtifact(BaseModel):
     preparation_questions: list[str] = Field(
         default_factory=list,
         description="Questions requiring human or business clarification before preparation.",
+    )
+
+    issues: list[DataPreparationIssue] = Field(
+        default_factory=list,
+        description=(
+            "Deterministically detected data-quality issues with controlled "
+            "treatment options."
+        ),
     )
