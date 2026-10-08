@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 
 from tools.data_preparation_executor import (
@@ -7,6 +7,9 @@ from tools.data_preparation_executor import (
 
 from domain.data_preparation_review import DataPreparationReview
 from domain.hitl_decision import HITLDecision
+from tools.data_preparation_treatment_plan_builder import (
+    build_data_preparation_treatment_plan,
+)
 from tools.project_store import ProjectStore
 from workflow.data_preparation_workflow import apply_data_preparation_decision
 from workflow.states import WorkflowState
@@ -112,6 +115,39 @@ def render_data_preparation_hitl_controls(
 
     st.subheader("Data Preparation Human Review")
 
+    artifact = project.data_preparation
+
+    if artifact is None:
+        st.error("No Data Preparation evidence is available.")
+        return
+
+    st.markdown("#### Detected Data Quality Issues")
+
+    if not artifact.issues:
+        st.info("No typed data quality issues were detected.")
+    else:
+        st.caption(
+            f"{len(artifact.issues)} issue(s) require a treatment decision "
+            "before preparation can be approved."
+        )
+
+        for issue in artifact.issues:
+            issue_label = issue.column or "Entire dataset"
+
+            with st.expander(
+                f"{issue.issue_type} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â {issue_label}",
+                expanded=False,
+            ):
+                st.write(f"**Issue ID:** {issue.issue_id}")
+                st.write(f"**Evidence:** {issue.evidence}")
+                st.write(
+                    "**Permitted treatments:** "
+                    + ", ".join(issue.allowed_treatments)
+                )
+
+                if issue.requires_explicit_human_decision:
+                    st.warning("Explicit human decision required.")
+
     if is_blocked:
         st.error(
             "The workflow is blocked by the human rejection. "
@@ -119,6 +155,54 @@ def render_data_preparation_hitl_controls(
         )
 
     with st.form("data_preparation_human_review"):
+        selected_treatments = {}
+
+        if artifact.issues:
+            st.markdown("#### Human Treatment Decisions")
+            st.caption(
+                "Choose a treatment and explain your reasoning for "
+                "every detected issue. No treatment is selected automatically."
+            )
+
+            for issue in artifact.issues:
+                issue_id = issue.issue_id
+
+                if not issue_id:
+                    st.error(
+                        "A detected issue has no stable ID. "
+                        "Preparation approval cannot proceed."
+                    )
+                    return
+
+                st.markdown(
+                    f"**{issue.issue_type} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â "
+                    f"{issue.column or 'Entire dataset'}**"
+                )
+
+                treatment = st.selectbox(
+                    f"Treatment for {issue_id} *",
+                    options=[None, *issue.allowed_treatments],
+                    format_func=lambda value: (
+                        "Select a treatment..."
+                        if value is None
+                        else value.replace("_", " ").title()
+                    ),
+                    key=f"preparation_treatment_{issue_id}",
+                    disabled=is_blocked,
+                )
+
+                treatment_rationale = st.text_area(
+                    f"Treatment rationale for {issue_id} *",
+                    key=f"preparation_treatment_rationale_{issue_id}",
+                    placeholder="Explain why this treatment is appropriate.",
+                    disabled=is_blocked,
+                )
+
+                selected_treatments[issue_id] = (
+                    treatment,
+                    treatment_rationale,
+                )
+
         reviewer = st.text_input(
             "Reviewer *",
             placeholder="Enter reviewer name or role.",
@@ -197,6 +281,33 @@ def render_data_preparation_hitl_controls(
             )
             return
 
+    if decision_value == "approve":
+        dataset_fingerprint = (
+            project.data_preparation_dataset_fingerprint
+        )
+        evidence_fingerprint = (
+            project.data_preparation_evidence_fingerprint
+        )
+
+        if not dataset_fingerprint or not evidence_fingerprint:
+            st.error(
+                "Preparation fingerprints are missing. "
+                "The review must be regenerated before approval."
+            )
+            return
+
+        try:
+            treatment_plan = build_data_preparation_treatment_plan(
+                artifact=artifact,
+                dataset_fingerprint=dataset_fingerprint,
+                evidence_fingerprint=evidence_fingerprint,
+                reviewer=reviewer,
+                selections=selected_treatments,
+            )
+        except ValueError as exc:
+            st.error(f"Invalid treatment plan: {exc}")
+            return
+
     decision = HITLDecision(
         decision=decision_value,
         reviewer=reviewer.strip(),
@@ -204,13 +315,19 @@ def render_data_preparation_hitl_controls(
         feedback=feedback,
     )
 
+    previous_treatment_plan = project.data_preparation_treatment_plan
+
+    if decision_value == "approve":
+        project.data_preparation_treatment_plan = treatment_plan
+
     try:
         apply_data_preparation_decision(
             project,
             decision,
             dataframe,
         )
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
+        project.data_preparation_treatment_plan = previous_treatment_plan
         st.error(str(exc))
         return
 
