@@ -12,6 +12,7 @@ from tools.data_preparation_issue_detector import (
     detect_categorical_inconsistency_issues,
     detect_date_conversion_issues,
     detect_exact_duplicate_issues,
+    detect_fake_null_issues,
     detect_feature_variability_issues,
     detect_formatting_issues,
     detect_identifier_issues,
@@ -175,6 +176,7 @@ def build_data_preparation_evidence(
 
     issues = [
         *detect_missing_value_issues(dataframe),
+        *detect_fake_null_issues(dataframe),
         *detect_categorical_inconsistency_issues(dataframe),
         *detect_date_conversion_issues(dataframe),
         *detect_numeric_conversion_issues(dataframe),

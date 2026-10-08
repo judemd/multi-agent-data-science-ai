@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from domain.data_preparation_action import DataPreparationAction
+from tools.data_quality import NULL_MARKERS
 
 
 def execute_data_preparation_actions(
@@ -45,6 +46,49 @@ def execute_data_preparation_actions(
                 )
 
             prepared = prepared.drop(columns=[action.column])
+
+        elif action.operation == "trim_whitespace":
+            if not action.column:
+                raise ValueError(
+                    "trim_whitespace requires a column."
+                )
+
+            if action.column not in prepared.columns:
+                raise ValueError(
+                    f"Cannot trim whitespace in unknown column "
+                    f"'{action.column}'."
+                )
+
+            prepared[action.column] = prepared[action.column].map(
+                lambda value: value.strip()
+                if isinstance(value, str)
+                else value
+            )
+
+        elif action.operation == "normalize_nulls":
+            if not action.column:
+                raise ValueError(
+                    "normalize_nulls requires a column."
+                )
+
+            if action.column not in prepared.columns:
+                raise ValueError(
+                    f"Cannot normalize nulls in unknown column "
+                    f"'{action.column}'."
+                )
+
+            series = prepared[action.column]
+
+            if (
+                pd.api.types.is_object_dtype(series)
+                or pd.api.types.is_string_dtype(series)
+            ):
+                normalized = series.astype("string").str.strip().str.lower()
+                fake_null_mask = (
+                    series.notna() & normalized.isin(NULL_MARKERS)
+                ).fillna(False)
+
+                prepared.loc[fake_null_mask, action.column] = pd.NA
 
         elif action.operation == "impute_missing":
             if not action.column:

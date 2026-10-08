@@ -206,6 +206,34 @@ def apply_data_preparation_decision(
                     )
                 )
 
+            elif treatment == "normalize_nulls":
+                if issue.column is None:
+                    raise ValueError(
+                        "normalize_nulls requires an issue column."
+                    )
+
+                approved_actions.append(
+                    DataPreparationAction(
+                        operation="normalize_nulls",
+                        column=issue.column,
+                        reason=treatment_decision.rationale,
+                    )
+                )
+
+            elif treatment == "trim_whitespace":
+                if issue.column is None:
+                    raise ValueError(
+                        "trim_whitespace requires an issue column."
+                    )
+
+                approved_actions.append(
+                    DataPreparationAction(
+                        operation="trim_whitespace",
+                        column=issue.column,
+                        reason=treatment_decision.rationale,
+                    )
+                )
+
             elif treatment == "exclude_feature":
                 if issue.column is None:
                     raise ValueError(
@@ -224,6 +252,14 @@ def apply_data_preparation_decision(
                 raise ValueError(
                     f"Unsupported approved treatment: {treatment!r}"
                 )
+
+        # Normalize approved textual null markers before applying
+        # other approved treatments, including missing-value imputation.
+        approved_actions.sort(
+            key=lambda action: 0
+            if action.operation == "normalize_nulls"
+            else 1
+        )
 
         prepared_dataframe = execute_data_preparation_actions(
             dataframe,

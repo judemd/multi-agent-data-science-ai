@@ -7,6 +7,8 @@ DataPreparationOperation = Literal[
     "remove_duplicates",
     "exclude_feature",
     "drop_rows",
+    "trim_whitespace",
+    "normalize_nulls",
 ]
 
 

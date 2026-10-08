@@ -7,6 +7,7 @@ from tools.data_preparation_issue_detector import (
     detect_formatting_issues,
     detect_feature_variability_issues,
     detect_identifier_issues,
+    detect_fake_null_issues,
     detect_missing_value_issues,
     detect_numeric_conversion_issues,
     detect_outlier_issues,
@@ -28,7 +29,7 @@ def test_detects_numeric_missing_values_with_numeric_treatments():
 
     assert issue.issue_type == "missing_values"
     assert issue.column == "revenue"
-    assert "1 missing or null-like values" in issue.evidence
+    assert "1 genuine missing values" in issue.evidence
     assert issue.allowed_treatments == [
         "median",
         "mean",
@@ -102,11 +103,18 @@ def test_detects_supported_textual_null_markers():
         }
     )
 
-    issues = detect_missing_value_issues(dataframe)
+    assert detect_missing_value_issues(dataframe) == []
+
+    issues = detect_fake_null_issues(dataframe)
 
     assert len(issues) == 1
+    assert issues[0].issue_type == "fake_nulls"
     assert issues[0].column == "status"
-    assert "5 missing or null-like values" in issues[0].evidence
+    assert "5 textual null placeholders" in issues[0].evidence
+    assert issues[0].allowed_treatments == [
+        "normalize_nulls",
+        "retain",
+    ]
 
 
 def test_unknown_is_not_automatically_missing():
@@ -596,3 +604,20 @@ def test_detect_feature_variability_issues_preserves_dataframe():
     detect_feature_variability_issues(dataframe)
 
     pd.testing.assert_frame_equal(dataframe, original)
+
+def test_genuine_missing_and_fake_nulls_are_separate_issues():
+    dataframe = pd.DataFrame(
+        {
+            "status": ["Active", None, " N/A ", "unknown", "null"],
+        }
+    )
+
+    missing_issues = detect_missing_value_issues(dataframe)
+    fake_null_issues = detect_fake_null_issues(dataframe)
+
+    assert len(missing_issues) == 1
+    assert "1 genuine missing values" in missing_issues[0].evidence
+
+    assert len(fake_null_issues) == 1
+    assert "2 textual null placeholders" in fake_null_issues[0].evidence
+    assert fake_null_issues[0].requires_explicit_human_decision

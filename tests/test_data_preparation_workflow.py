@@ -1222,3 +1222,188 @@ def test_human_approved_drop_rows_is_executed(tmp_path, monkeypatch):
     # The original DataFrame must remain unchanged.
     assert len(dataframe) == 4
     assert pd.isna(dataframe.loc[1, "revenue"])
+
+def test_approved_trim_whitespace_executes_before_modeling(
+    tmp_path,
+    monkeypatch,
+):
+    from domain.data_preparation_issue import DataPreparationIssue
+    from domain.data_preparation_treatment_decision import (
+        DataPreparationTreatmentDecision,
+    )
+    from domain.data_preparation_treatment_plan import (
+        DataPreparationTreatmentPlan,
+    )
+    from tools.preparation_evidence_fingerprint import (
+        fingerprint_preparation_evidence,
+    )
+
+    monkeypatch.chdir(tmp_path)
+
+    project, _ = build_approvable_project(tmp_path)
+
+    dataframe = pd.DataFrame(
+        {
+            "status": [" Active ", "Pending  ", "  Active"],
+            "revenue": [10.0, 20.0, 30.0],
+        }
+    )
+    dataframe.to_csv(project.dataset_path, index=False)
+
+    project.data_preparation = DataPreparationArtifact(
+        file_name="customers.csv",
+        row_count=3,
+        column_count=2,
+        issues=[
+            DataPreparationIssue(
+                issue_id="formatting_issue:status",
+                issue_type="formatting_issue",
+                column="status",
+                evidence="Status values contain surrounding whitespace.",
+                allowed_treatments=["trim_whitespace", "retain"],
+                requires_explicit_human_decision=True,
+            ),
+        ],
+    )
+
+    from tools.dataset_fingerprint import fingerprint_dataset_file
+
+    dataset_fingerprint = fingerprint_dataset_file(project.dataset_path)
+    evidence_fingerprint = fingerprint_preparation_evidence(
+        project.data_preparation
+    )
+
+    project.data_preparation_dataset_fingerprint = dataset_fingerprint
+    project.data_preparation_evidence_fingerprint = evidence_fingerprint
+    project.data_preparation_treatment_plan = DataPreparationTreatmentPlan(
+        dataset_fingerprint=dataset_fingerprint,
+        evidence_fingerprint=evidence_fingerprint,
+        reviewer="data_scientist",
+        decisions=[
+            DataPreparationTreatmentDecision(
+                issue_id="formatting_issue:status",
+                treatment="trim_whitespace",
+                rationale="Approved removal of surrounding whitespace.",
+            ),
+        ],
+    )
+
+    result = apply_data_preparation_decision(
+        project,
+        build_decision("approve"),
+        dataframe,
+    )
+
+    assert result.current_state == WorkflowState.MODELING
+    assert result.data_preparation_decision.decision == "approve"
+    assert result.prepared_dataset_path is not None
+
+    prepared = pd.read_csv(result.prepared_dataset_path)
+    assert prepared["status"].tolist() == [
+        "Active",
+        "Pending",
+        "Active",
+    ]
+    assert prepared["revenue"].tolist() == [10.0, 20.0, 30.0]
+
+    original = pd.read_csv(project.dataset_path)
+    assert original["status"].tolist() == [
+        " Active ",
+        "Pending  ",
+        "  Active",
+    ]
+
+def test_approved_normalize_nulls_runs_before_imputation(tmp_path, monkeypatch):
+    from domain.data_preparation_issue import DataPreparationIssue
+    from domain.data_preparation_treatment_decision import (
+        DataPreparationTreatmentDecision,
+    )
+    from domain.data_preparation_treatment_plan import DataPreparationTreatmentPlan
+    from tools.dataset_fingerprint import fingerprint_dataset_file
+    from tools.preparation_evidence_fingerprint import (
+        fingerprint_preparation_evidence,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    project, _ = build_approvable_project(tmp_path)
+
+    dataframe = pd.DataFrame(
+        {
+            "status": ["Active", "Active", None, " N/A "],
+            "revenue": [10.0, 20.0, 30.0, 40.0],
+        }
+    )
+    dataframe.to_csv(project.dataset_path, index=False)
+
+    project.data_preparation = DataPreparationArtifact(
+        file_name="customers.csv",
+        row_count=4,
+        column_count=2,
+        issues=[
+            DataPreparationIssue(
+                issue_id="missing_values:status",
+                issue_type="missing_values",
+                column="status",
+                evidence="One genuine missing value.",
+                allowed_treatments=["mode", "retain"],
+            ),
+            DataPreparationIssue(
+                issue_id="fake_nulls:status",
+                issue_type="fake_nulls",
+                column="status",
+                evidence="One textual null placeholder.",
+                allowed_treatments=["normalize_nulls", "retain"],
+                requires_explicit_human_decision=True,
+            ),
+        ],
+    )
+
+    dataset_fingerprint = fingerprint_dataset_file(project.dataset_path)
+    evidence_fingerprint = fingerprint_preparation_evidence(
+        project.data_preparation
+    )
+
+    project.data_preparation_dataset_fingerprint = dataset_fingerprint
+    project.data_preparation_evidence_fingerprint = evidence_fingerprint
+
+    project.data_preparation_treatment_plan = DataPreparationTreatmentPlan(
+        dataset_fingerprint=dataset_fingerprint,
+        evidence_fingerprint=evidence_fingerprint,
+        reviewer="data_scientist",
+        decisions=[
+            DataPreparationTreatmentDecision(
+                issue_id="missing_values:status",
+                treatment="mode",
+                rationale="Approved mode imputation.",
+            ),
+            DataPreparationTreatmentDecision(
+                issue_id="fake_nulls:status",
+                treatment="normalize_nulls",
+                rationale="Approved null normalization.",
+            ),
+        ],
+    )
+
+    result = apply_data_preparation_decision(
+        project,
+        build_decision("approve"),
+        dataframe,
+    )
+
+    assert result.current_state == WorkflowState.MODELING
+    assert result.data_preparation_decision.decision == "approve"
+    assert result.prepared_dataset_path is not None
+
+    prepared = pd.read_csv(result.prepared_dataset_path)
+
+    assert prepared["status"].tolist() == [
+        "Active",
+        "Active",
+        "Active",
+        "Active",
+    ]
+    assert prepared["revenue"].tolist() == [10.0, 20.0, 30.0, 40.0]
+
+    original = pd.read_csv(project.dataset_path)
+    assert pd.isna(original.loc[2, "status"])
+    assert original.loc[3, "status"] == " N/A "

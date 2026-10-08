@@ -2,6 +2,7 @@ import pandas as pd
 
 from domain.data_preparation_issue import DataPreparationIssue
 from tools.data_quality import (
+    NULL_MARKERS,
     count_blank_and_null_like_values,
     count_duplicate_rows,
     detect_candidate_date_columns,
@@ -17,15 +18,15 @@ from tools.data_quality import (
 def detect_missing_value_issues(
     dataframe: pd.DataFrame,
 ) -> list[DataPreparationIssue]:
-    """Detect missing and null-like values with controlled treatments."""
-
+    """Detect genuine pandas missing values with controlled treatments."""
     issues: list[DataPreparationIssue] = []
 
-    missing_value_summary = count_blank_and_null_like_values(
-        dataframe
-    )
+    for column in dataframe.columns:
+        missing_count = int(dataframe[column].isna().sum())
 
-    for column, missing_count in missing_value_summary.items():
+        if missing_count == 0:
+            continue
+
         if pd.api.types.is_numeric_dtype(dataframe[column]):
             allowed_treatments = [
                 "median",
@@ -48,7 +49,7 @@ def detect_missing_value_issues(
                 column=column,
                 evidence=(
                     f"Column '{column}' contains "
-                    f"{missing_count} missing or null-like values."
+                    f"{missing_count} genuine missing values."
                 ),
                 allowed_treatments=allowed_treatments,
             )
@@ -56,6 +57,43 @@ def detect_missing_value_issues(
 
     return issues
 
+
+def detect_fake_null_issues(
+    dataframe: pd.DataFrame,
+) -> list[DataPreparationIssue]:
+    """Detect textual null placeholders without changing the dataframe."""
+    issues: list[DataPreparationIssue] = []
+
+    for column in dataframe.columns:
+        series = dataframe[column]
+
+        if not (
+            pd.api.types.is_object_dtype(series)
+            or pd.api.types.is_string_dtype(series)
+        ):
+            continue
+
+        normalized = series.astype("string").str.strip().str.lower()
+        fake_null_mask = series.notna() & normalized.isin(NULL_MARKERS)
+        fake_null_count = int(fake_null_mask.sum())
+
+        if fake_null_count == 0:
+            continue
+
+        issues.append(
+            DataPreparationIssue(
+                issue_type="fake_nulls",
+                column=column,
+                evidence=(
+                    f"Column '{column}' contains "
+                    f"{fake_null_count} textual null placeholders."
+                ),
+                allowed_treatments=["normalize_nulls", "retain"],
+                requires_explicit_human_decision=True,
+            )
+        )
+
+    return issues
 
 def detect_categorical_inconsistency_issues(
     dataframe: pd.DataFrame,
