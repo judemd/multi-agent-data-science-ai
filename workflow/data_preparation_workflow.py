@@ -220,6 +220,20 @@ def apply_data_preparation_decision(
                     )
                 )
 
+            elif treatment == "normalize_categories":
+                if issue.column is None:
+                    raise ValueError(
+                        "normalize_categories requires an issue column."
+                    )
+
+                approved_actions.append(
+                    DataPreparationAction(
+                        operation="normalize_categories",
+                        column=issue.column,
+                        reason=treatment_decision.rationale,
+                    )
+                )
+
             elif treatment == "trim_whitespace":
                 if issue.column is None:
                     raise ValueError(
@@ -253,12 +267,20 @@ def apply_data_preparation_decision(
                     f"Unsupported approved treatment: {treatment!r}"
                 )
 
-        # Normalize approved textual null markers before applying
-        # other approved treatments, including missing-value imputation.
+        # Apply approved text cleaning before missing-value imputation.
+        # Stable sorting preserves relative order within each priority.
+        operation_priority = {
+            "normalize_nulls": 0,
+            "trim_whitespace": 1,
+            "normalize_categories": 2,
+            "impute_missing": 3,
+        }
+
         approved_actions.sort(
-            key=lambda action: 0
-            if action.operation == "normalize_nulls"
-            else 1
+            key=lambda action: operation_priority.get(
+                action.operation,
+                4,
+            )
         )
 
         prepared_dataframe = execute_data_preparation_actions(

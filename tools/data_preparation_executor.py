@@ -90,6 +90,67 @@ def execute_data_preparation_actions(
 
                 prepared.loc[fake_null_mask, action.column] = pd.NA
 
+        elif action.operation == "normalize_categories":
+            if not action.column:
+                raise ValueError(
+                    "normalize_categories requires a column."
+                )
+
+            if action.column not in prepared.columns:
+                raise ValueError(
+                    f"Cannot normalize categories in unknown column "
+                    f"'{action.column}'."
+                )
+
+            series = prepared[action.column]
+
+            if not (
+                pd.api.types.is_object_dtype(series)
+                or pd.api.types.is_string_dtype(series)
+            ):
+                raise ValueError(
+                    "normalize_categories requires a text column."
+                )
+
+            groups: dict[str, dict[str, int]] = {}
+
+            for value in series:
+                if not isinstance(value, str):
+                    continue
+
+                normalized = value.strip().lower()
+
+                if normalized in NULL_MARKERS:
+                    continue
+
+                frequencies = groups.setdefault(normalized, {})
+                frequencies[value] = frequencies.get(value, 0) + 1
+
+            canonical_values: dict[str, str] = {}
+
+            for normalized, frequencies in groups.items():
+                if len(frequencies) < 2:
+                    continue
+
+                # Python dictionaries preserve insertion order.
+                # max therefore selects the first observed spelling
+                # when multiple spellings have equal frequencies.
+                representative = max(
+                    frequencies,
+                    key=frequencies.get,
+                )
+                canonical_values[normalized] = representative.strip()
+
+            prepared[action.column] = series.map(
+                lambda value: canonical_values.get(
+                    value.strip().lower(),
+                    value,
+                )
+                if isinstance(value, str)
+                and value.strip().lower() not in NULL_MARKERS
+                else value
+            )
+
         elif action.operation == "impute_missing":
             if not action.column:
                 raise ValueError(

@@ -1407,3 +1407,221 @@ def test_approved_normalize_nulls_runs_before_imputation(tmp_path, monkeypatch):
     original = pd.read_csv(project.dataset_path)
     assert pd.isna(original.loc[2, "status"])
     assert original.loc[3, "status"] == " N/A "
+
+
+def test_approved_normalize_categories_executes_before_modeling(
+    tmp_path,
+    monkeypatch,
+):
+    from domain.data_preparation_issue import DataPreparationIssue
+    from domain.data_preparation_treatment_decision import (
+        DataPreparationTreatmentDecision,
+    )
+    from domain.data_preparation_treatment_plan import (
+        DataPreparationTreatmentPlan,
+    )
+    from tools.dataset_fingerprint import fingerprint_dataset_file
+    from tools.preparation_evidence_fingerprint import (
+        fingerprint_preparation_evidence,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    project, _ = build_approvable_project(tmp_path)
+
+    dataframe = pd.DataFrame(
+        {
+            "segment": [
+                "Consumer",
+                "consumer",
+                "Consumer",
+                " Consumer ",
+                "Business",
+                "business",
+                "business",
+            ],
+            "revenue": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0],
+        }
+    )
+    dataframe.to_csv(project.dataset_path, index=False)
+
+    project.data_preparation = DataPreparationArtifact(
+        file_name="customers.csv",
+        row_count=7,
+        column_count=2,
+        issues=[
+            DataPreparationIssue(
+                issue_id="categorical_inconsistency:segment",
+                issue_type="categorical_inconsistency",
+                column="segment",
+                evidence="Segment values contain case and whitespace variants.",
+                allowed_treatments=["normalize_categories", "retain"],
+                requires_explicit_human_decision=True,
+            ),
+        ],
+    )
+
+    dataset_fingerprint = fingerprint_dataset_file(project.dataset_path)
+    evidence_fingerprint = fingerprint_preparation_evidence(
+        project.data_preparation
+    )
+
+    project.data_preparation_dataset_fingerprint = dataset_fingerprint
+    project.data_preparation_evidence_fingerprint = evidence_fingerprint
+    project.data_preparation_treatment_plan = DataPreparationTreatmentPlan(
+        dataset_fingerprint=dataset_fingerprint,
+        evidence_fingerprint=evidence_fingerprint,
+        reviewer="data_scientist",
+        decisions=[
+            DataPreparationTreatmentDecision(
+                issue_id="categorical_inconsistency:segment",
+                treatment="normalize_categories",
+                rationale="Approved consolidation of observed category variants.",
+            ),
+        ],
+    )
+
+    result = apply_data_preparation_decision(
+        project,
+        build_decision("approve"),
+        dataframe,
+    )
+
+    assert result.current_state == WorkflowState.MODELING
+    assert result.data_preparation_decision.decision == "approve"
+    assert result.prepared_dataset_path is not None
+
+    prepared = pd.read_csv(result.prepared_dataset_path)
+
+    assert prepared["segment"].tolist() == [
+        "Consumer",
+        "Consumer",
+        "Consumer",
+        "Consumer",
+        "business",
+        "business",
+        "business",
+    ]
+    assert prepared["revenue"].tolist() == [
+        10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0,
+    ]
+
+    original = pd.read_csv(project.dataset_path)
+    assert original["segment"].tolist() == [
+        "Consumer",
+        "consumer",
+        "Consumer",
+        " Consumer ",
+        "Business",
+        "business",
+        "business",
+    ]
+
+
+def test_category_normalization_precedes_mode_imputation(
+    tmp_path,
+    monkeypatch,
+):
+    from domain.data_preparation_issue import DataPreparationIssue
+    from domain.data_preparation_treatment_decision import (
+        DataPreparationTreatmentDecision,
+    )
+    from domain.data_preparation_treatment_plan import (
+        DataPreparationTreatmentPlan,
+    )
+    from tools.dataset_fingerprint import fingerprint_dataset_file
+    from tools.preparation_evidence_fingerprint import (
+        fingerprint_preparation_evidence,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    project, _ = build_approvable_project(tmp_path)
+
+    dataframe = pd.DataFrame(
+        {
+            "segment": [
+                "Consumer",
+                "consumer",
+                "Consumer",
+                "Business",
+                "Business",
+                None,
+            ],
+            "revenue": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        }
+    )
+    dataframe.to_csv(project.dataset_path, index=False)
+
+    project.data_preparation = DataPreparationArtifact(
+        file_name="customers.csv",
+        row_count=6,
+        column_count=2,
+        issues=[
+            DataPreparationIssue(
+                issue_id="missing_values:segment",
+                issue_type="missing_values",
+                column="segment",
+                evidence="One genuine missing value.",
+                allowed_treatments=["mode", "retain"],
+            ),
+            DataPreparationIssue(
+                issue_id="categorical_inconsistency:segment",
+                issue_type="categorical_inconsistency",
+                column="segment",
+                evidence="Consumer and consumer are case variants.",
+                allowed_treatments=["normalize_categories", "retain"],
+                requires_explicit_human_decision=True,
+            ),
+        ],
+    )
+
+    dataset_fingerprint = fingerprint_dataset_file(project.dataset_path)
+    evidence_fingerprint = fingerprint_preparation_evidence(
+        project.data_preparation
+    )
+
+    project.data_preparation_dataset_fingerprint = dataset_fingerprint
+    project.data_preparation_evidence_fingerprint = evidence_fingerprint
+
+    # Intentionally list imputation before categorical normalization.
+    project.data_preparation_treatment_plan = DataPreparationTreatmentPlan(
+        dataset_fingerprint=dataset_fingerprint,
+        evidence_fingerprint=evidence_fingerprint,
+        reviewer="data_scientist",
+        decisions=[
+            DataPreparationTreatmentDecision(
+                issue_id="missing_values:segment",
+                treatment="mode",
+                rationale="Approved mode imputation.",
+            ),
+            DataPreparationTreatmentDecision(
+                issue_id="categorical_inconsistency:segment",
+                treatment="normalize_categories",
+                rationale="Approved consolidation of category variants.",
+            ),
+        ],
+    )
+
+    result = apply_data_preparation_decision(
+        project,
+        build_decision("approve"),
+        dataframe,
+    )
+
+    assert result.current_state == WorkflowState.MODELING
+    assert result.data_preparation_decision.decision == "approve"
+    assert result.prepared_dataset_path is not None
+
+    prepared = pd.read_csv(result.prepared_dataset_path)
+
+    assert prepared["segment"].tolist() == [
+        "Consumer",
+        "Consumer",
+        "Consumer",
+        "Business",
+        "Business",
+        "Consumer",
+    ]
+
+    original = pd.read_csv(project.dataset_path)
+    assert pd.isna(original.loc[5, "segment"])
+    assert original.loc[1, "segment"] == "consumer"

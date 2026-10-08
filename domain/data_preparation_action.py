@@ -9,6 +9,7 @@ DataPreparationOperation = Literal[
     "drop_rows",
     "trim_whitespace",
     "normalize_nulls",
+    "normalize_categories",
 ]
 
 
