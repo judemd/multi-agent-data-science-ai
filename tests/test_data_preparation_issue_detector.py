@@ -2,10 +2,14 @@ import pandas as pd
 
 from tools.data_preparation_issue_detector import (
     detect_categorical_inconsistency_issues,
+    detect_date_conversion_issues,
     detect_exact_duplicate_issues,
+    detect_formatting_issues,
+    detect_feature_variability_issues,
     detect_identifier_issues,
     detect_missing_value_issues,
     detect_numeric_conversion_issues,
+    detect_outlier_issues,
 )
 
 
@@ -362,3 +366,233 @@ def test_numeric_high_cardinality_column_is_not_identifier_issue():
 
     assert issues == []
 
+
+
+
+def test_detects_date_conversion_issue_with_controlled_treatments():
+    dataframe = pd.DataFrame(
+        {
+            "signup_date": [
+                "2025-01-01",
+                "2025-02-01",
+                "2025-03-01",
+                "2025-04-01",
+            ],
+        }
+    )
+
+    issues = detect_date_conversion_issues(dataframe)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == "date_conversion"
+    assert issues[0].column == "signup_date"
+    assert issues[0].allowed_treatments == [
+        "convert_date",
+        "retain",
+    ]
+
+
+def test_date_conversion_issues_ignore_categories_and_numeric_text():
+    dataframe = pd.DataFrame(
+        {
+            "segment": [
+                "Consumer",
+                "Business",
+                "Consumer",
+                "Business",
+            ],
+            "reference": [
+                "1001",
+                "1002",
+                "1003",
+                "1004",
+            ],
+        }
+    )
+
+    issues = detect_date_conversion_issues(dataframe)
+
+    assert issues == []
+
+
+def test_date_conversion_issue_detection_does_not_modify_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "signup_date": [
+                "2025-01-01",
+                None,
+                "2025-03-01",
+            ],
+        }
+    )
+    before = dataframe.copy(deep=True)
+
+    detect_date_conversion_issues(dataframe)
+
+    pd.testing.assert_frame_equal(dataframe, before)
+
+
+def test_detect_formatting_issues_reports_whitespace():
+    dataframe = pd.DataFrame(
+        {
+            "segment": [
+                " Consumer",
+                "Business ",
+                "Consumer",
+                "Business",
+            ],
+        }
+    )
+
+    issues = detect_formatting_issues(dataframe)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == "formatting_issue"
+    assert issues[0].column == "segment"
+    assert "2 value(s)" in issues[0].evidence
+    assert issues[0].allowed_treatments == [
+        "trim_whitespace",
+        "retain",
+    ]
+
+
+def test_detect_formatting_issues_ignores_clean_and_numeric_columns():
+    dataframe = pd.DataFrame(
+        {
+            "segment": ["Consumer", "Business", "Consumer"],
+            "revenue": [100, 200, 300],
+        }
+    )
+
+    assert detect_formatting_issues(dataframe) == []
+
+
+def test_detect_formatting_issues_does_not_modify_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "segment": [" Consumer ", "Business", None],
+        }
+    )
+    original = dataframe.copy(deep=True)
+
+    detect_formatting_issues(dataframe)
+
+    pd.testing.assert_frame_equal(dataframe, original)
+
+
+def test_detect_outlier_issues_reports_extreme_value():
+    dataframe = pd.DataFrame(
+        {
+            "revenue": [100, 105, 110, 115, 120, 1000],
+        }
+    )
+
+    issues = detect_outlier_issues(dataframe)
+
+    assert len(issues) == 1
+    assert issues[0].issue_type == "outlier"
+    assert issues[0].column == "revenue"
+    assert "1 IQR outlier(s)" in issues[0].evidence
+    assert "lower bound:" in issues[0].evidence
+    assert "upper bound:" in issues[0].evidence
+    assert issues[0].allowed_treatments == [
+        "cap_outliers",
+        "retain",
+        "investigate",
+    ]
+    assert issues[0].requires_explicit_human_decision is True
+
+
+def test_detect_outlier_issues_ignores_clean_null_and_text_columns():
+    dataframe = pd.DataFrame(
+        {
+            "revenue": [100, 105, 110, 115, 120, None],
+            "empty_numeric": pd.Series(
+                [float("nan")] * 6,
+                dtype="float64",
+            ),
+            "segment": [
+                "Consumer",
+                "Business",
+                "Consumer",
+                "Business",
+                "Consumer",
+                "Business",
+            ],
+        }
+    )
+
+    assert detect_outlier_issues(dataframe) == []
+
+
+def test_detect_outlier_issues_does_not_modify_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "revenue": [100, 105, 110, 115, 120, 1000],
+        }
+    )
+    original = dataframe.copy(deep=True)
+
+    detect_outlier_issues(dataframe)
+
+    pd.testing.assert_frame_equal(dataframe, original)
+
+
+def test_detect_feature_variability_issues_classifies_features():
+    dataframe = pd.DataFrame(
+        {
+            "constant_segment": ["Consumer"] * 20,
+            "near_constant_status": ["Active"] * 19 + ["Inactive"],
+        }
+    )
+
+    issues = detect_feature_variability_issues(dataframe)
+
+    assert len(issues) == 2
+
+    by_column = {issue.column: issue for issue in issues}
+
+    constant = by_column["constant_segment"]
+    assert constant.issue_type == "constant_feature"
+    assert "1 distinct non-null value(s)" in constant.evidence
+    assert "100.00%" in constant.evidence
+    assert constant.allowed_treatments == [
+        "exclude_feature",
+        "retain",
+    ]
+    assert constant.requires_explicit_human_decision is True
+
+    near_constant = by_column["near_constant_status"]
+    assert near_constant.issue_type == "near_constant_feature"
+    assert "2 distinct non-null value(s)" in near_constant.evidence
+    assert "95.00%" in near_constant.evidence
+    assert near_constant.allowed_treatments == [
+        "exclude_feature",
+        "retain",
+        "investigate",
+    ]
+    assert near_constant.requires_explicit_human_decision is True
+
+
+def test_detect_feature_variability_issues_ignores_missing_and_varying():
+    dataframe = pd.DataFrame(
+        {
+            "entirely_missing": [None] * 20,
+            "varying_region": ["North"] * 10 + ["South"] * 10,
+        }
+    )
+
+    assert detect_feature_variability_issues(dataframe) == []
+
+
+def test_detect_feature_variability_issues_preserves_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "status": ["Active"] * 19 + ["Inactive"],
+        }
+    )
+    original = dataframe.copy(deep=True)
+
+    detect_feature_variability_issues(dataframe)
+
+    pd.testing.assert_frame_equal(dataframe, original)

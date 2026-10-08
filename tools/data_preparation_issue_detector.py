@@ -4,9 +4,13 @@ from domain.data_preparation_issue import DataPreparationIssue
 from tools.data_quality import (
     count_blank_and_null_like_values,
     count_duplicate_rows,
+    detect_candidate_date_columns,
+    detect_constant_and_near_constant_features,
     detect_categorical_inconsistencies,
     detect_numeric_like_columns,
+    detect_iqr_outliers,
     detect_potential_identifier_columns,
+    detect_string_formatting_issues,
 )
 
 
@@ -190,3 +194,143 @@ def detect_identifier_issues(
         )
         for column in identifier_columns
     ]
+
+
+def detect_date_conversion_issues(
+    dataframe: pd.DataFrame,
+) -> list[DataPreparationIssue]:
+    """Surface date-like text columns for human treatment selection."""
+
+    return [
+        DataPreparationIssue(
+            issue_type="date_conversion",
+            column=column,
+            evidence=(
+                f"Column '{column}' contains predominantly date-like text "
+                "and may require date conversion before modeling."
+            ),
+            allowed_treatments=[
+                "convert_date",
+                "retain",
+            ],
+        )
+        for column in detect_candidate_date_columns(dataframe)
+    ]
+
+
+def detect_formatting_issues(
+    dataframe: pd.DataFrame,
+) -> list[DataPreparationIssue]:
+    """Surface leading/trailing whitespace as typed preparation issues."""
+
+    issues: list[DataPreparationIssue] = []
+
+    for column in dataframe.columns:
+        series = dataframe[column]
+
+        if not (
+            pd.api.types.is_object_dtype(series)
+            or pd.api.types.is_string_dtype(series)
+        ):
+            continue
+
+        counts = detect_string_formatting_issues(dataframe, column)
+        whitespace_count = counts["leading_or_trailing_whitespace_count"]
+
+        if whitespace_count == 0:
+            continue
+
+        issues.append(
+            DataPreparationIssue(
+                issue_type="formatting_issue",
+                column=column,
+                evidence=(
+                    f"Column '{column}' contains {whitespace_count} "
+                    "value(s) with leading or trailing whitespace."
+                ),
+                allowed_treatments=[
+                    "trim_whitespace",
+                    "retain",
+                ],
+            )
+        )
+
+    return issues
+
+
+def detect_outlier_issues(
+    dataframe: pd.DataFrame,
+) -> list[DataPreparationIssue]:
+    """Surface IQR outliers without treating them as confirmed errors."""
+
+    issues: list[DataPreparationIssue] = []
+
+    for column in dataframe.columns:
+        if not pd.api.types.is_numeric_dtype(dataframe[column]):
+            continue
+
+        result = detect_iqr_outliers(dataframe, column)
+        outlier_count = result["outlier_count"]
+
+        if outlier_count == 0:
+            continue
+
+        issues.append(
+            DataPreparationIssue(
+                issue_type="outlier",
+                column=column,
+                evidence=(
+                    f"Column '{column}' has {outlier_count} IQR outlier(s); "
+                    f"lower bound: {result['lower_bound']}; "
+                    f"upper bound: {result['upper_bound']}. "
+                    "These are statistical anomalies, not confirmed errors."
+                ),
+                allowed_treatments=[
+                    "cap_outliers",
+                    "retain",
+                    "investigate",
+                ],
+                requires_explicit_human_decision=True,
+            )
+        )
+
+    return issues
+
+
+def detect_feature_variability_issues(
+    dataframe: pd.DataFrame,
+) -> list[DataPreparationIssue]:
+    """Surface constant and near-constant features for human review."""
+
+    results = detect_constant_and_near_constant_features(dataframe)
+    issues: list[DataPreparationIssue] = []
+
+    for column, result in results.items():
+        issue_type = result["issue_type"]
+
+        if issue_type == "constant_feature":
+            allowed_treatments = ["exclude_feature", "retain"]
+        else:
+            allowed_treatments = [
+                "exclude_feature",
+                "retain",
+                "investigate",
+            ]
+
+        issues.append(
+            DataPreparationIssue(
+                issue_type=issue_type,
+                column=column,
+                evidence=(
+                    f"Column '{column}' has {result['distinct_count']} "
+                    f"distinct non-null value(s) across "
+                    f"{result['non_null_count']} non-null observation(s); "
+                    f"dominant-value proportion: "
+                    f"{result['dominant_proportion']:.2%}."
+                ),
+                allowed_treatments=allowed_treatments,
+                requires_explicit_human_decision=True,
+            )
+        )
+
+    return issues

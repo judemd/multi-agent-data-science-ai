@@ -318,3 +318,98 @@ def detect_potential_identifier_columns(
 
     return identifier_columns
 
+
+
+def detect_candidate_date_columns(
+    dataframe: pd.DataFrame,
+    threshold: float = 0.8,
+) -> list[str]:
+    """Identify date-like text columns without modifying their values."""
+
+    if not 0 < threshold <= 1:
+        raise ValueError("threshold must be greater than 0 and at most 1.")
+
+    candidates: list[str] = []
+
+    for column in dataframe.columns:
+        series = dataframe[column]
+
+        if not pd.api.types.is_string_dtype(series):
+            continue
+
+        non_null = series.dropna().astype(str).str.strip()
+        non_null = non_null[non_null.ne("")]
+
+        if non_null.empty:
+            continue
+
+        # Purely numeric-looking text should not be interpreted as dates.
+        numeric_ratio = float(
+            pd.to_numeric(non_null, errors="coerce").notna().mean()
+        )
+
+        if numeric_ratio >= threshold:
+            continue
+
+        parsed = pd.to_datetime(
+            non_null,
+            errors="coerce",
+            format="mixed",
+        )
+
+        date_ratio = float(parsed.notna().mean())
+
+        if date_ratio >= threshold:
+            candidates.append(column)
+
+    return candidates
+
+
+def detect_constant_and_near_constant_features(
+    dataframe: pd.DataFrame,
+    dominance_threshold: float = 0.95,
+    min_non_null_count: int = 20,
+) -> dict[str, dict[str, float | int | str]]:
+    """Identify constant and near-constant columns without modifying data."""
+
+    if not 0 < dominance_threshold <= 1:
+        raise ValueError(
+            "dominance_threshold must be greater than 0 and at most 1."
+        )
+
+    if min_non_null_count < 1:
+        raise ValueError("min_non_null_count must be at least 1.")
+
+    results: dict[str, dict[str, float | int | str]] = {}
+
+    for column in dataframe.columns:
+        non_null = dataframe[column].dropna()
+        non_null_count = len(non_null)
+
+        if non_null_count == 0:
+            continue
+
+        distinct_count = int(non_null.nunique())
+
+        if distinct_count == 1:
+            issue_type = "constant_feature"
+            dominant_proportion = 1.0
+        elif non_null_count >= min_non_null_count:
+            counts = non_null.value_counts()
+            dominant_proportion = float(counts.iloc[0] / non_null_count)
+
+            if dominant_proportion < dominance_threshold:
+                continue
+
+            issue_type = "near_constant_feature"
+        else:
+            continue
+
+        results[column] = {
+            "issue_type": issue_type,
+            "non_null_count": non_null_count,
+            "distinct_count": distinct_count,
+            "dominant_proportion": dominant_proportion,
+        }
+
+    return results

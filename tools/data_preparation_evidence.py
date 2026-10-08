@@ -1,22 +1,30 @@
 import pandas as pd
 
 from domain.data_preparation import DataPreparationArtifact
+from domain.data_validation_rule import DataValidationRule
 from tools.data_quality import (
+    detect_candidate_date_columns,
     detect_numeric_like_columns,
     detect_potential_identifier_columns,
 )
+from tools.data_validation_issue_detector import detect_validation_rule_issues
 from tools.data_preparation_issue_detector import (
     detect_categorical_inconsistency_issues,
+    detect_date_conversion_issues,
     detect_exact_duplicate_issues,
+    detect_feature_variability_issues,
+    detect_formatting_issues,
     detect_identifier_issues,
     detect_missing_value_issues,
     detect_numeric_conversion_issues,
+    detect_outlier_issues,
 )
 
 
 def build_data_preparation_evidence(
     dataframe: pd.DataFrame,
     file_name: str,
+    approved_validation_rules: list[DataValidationRule] | None = None,
 ) -> DataPreparationArtifact:
     """Build deterministic preparation evidence without modifying the DataFrame."""
 
@@ -34,7 +42,7 @@ def build_data_preparation_evidence(
 
     constant_columns: list[str] = []
 
-    candidate_date_columns: list[str] = []
+    candidate_date_columns = detect_candidate_date_columns(dataframe)
 
     potential_identifier_columns = detect_potential_identifier_columns(dataframe)
 
@@ -117,16 +125,7 @@ def build_data_preparation_evidence(
                     "leading_or_trailing_whitespace": whitespace_count,
                 }
 
-            date_ratio = float(
-                pd.to_datetime(
-                    non_null,
-                    errors="coerce",
-                    format="mixed",
-                ).notna().mean()
-            )
 
-            if date_ratio >= 0.8:
-                candidate_date_columns.append(column)
 
     preparation_questions: list[str] = []
 
@@ -177,9 +176,17 @@ def build_data_preparation_evidence(
     issues = [
         *detect_missing_value_issues(dataframe),
         *detect_categorical_inconsistency_issues(dataframe),
+        *detect_date_conversion_issues(dataframe),
         *detect_numeric_conversion_issues(dataframe),
+        *detect_outlier_issues(dataframe),
+        *detect_formatting_issues(dataframe),
+        *detect_feature_variability_issues(dataframe),
         *detect_exact_duplicate_issues(dataframe),
         *detect_identifier_issues(dataframe),
+        *detect_validation_rule_issues(
+            dataframe,
+            approved_validation_rules or [],
+        ),
     ]
 
     return DataPreparationArtifact(
@@ -203,16 +210,3 @@ def build_data_preparation_evidence(
         preparation_questions=preparation_questions,
         issues=issues,
     )
-
-
-
-
-
-
-
-
-
-
-
-
-

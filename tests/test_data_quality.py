@@ -5,6 +5,8 @@ from tools.data_quality import (
     count_blank_and_null_like_values,
     count_duplicate_rows,
     detect_categorical_inconsistencies,
+    detect_candidate_date_columns,
+    detect_constant_and_near_constant_features,
     detect_iqr_outliers,
     detect_numeric_like_columns,
     detect_string_formatting_issues,
@@ -493,6 +495,108 @@ def test_identifier_detection_rejects_invalid_min_non_null_count():
 
     with pytest.raises(ValueError):
         detect_potential_identifier_columns(
+            dataframe,
+            min_non_null_count=0,
+        )
+
+
+def test_detect_candidate_date_columns_distinguishes_dates_from_other_text():
+    dataframe = pd.DataFrame(
+        {
+            "signup_date": [
+                "2025-01-01",
+                "2025-02-01",
+                "2025-03-01",
+                "2025-04-01",
+            ],
+            "segment": [
+                "Consumer",
+                "Business",
+                "Consumer",
+                "Business",
+            ],
+            "reference": [
+                "1001",
+                "1002",
+                "1003",
+                "1004",
+            ],
+        }
+    )
+
+    result = detect_candidate_date_columns(dataframe)
+
+    assert result == ["signup_date"]
+
+
+def test_detect_constant_and_near_constant_features_classifies_columns():
+    dataframe = pd.DataFrame(
+        {
+            "constant_segment": ["Consumer"] * 20,
+            "near_constant_status": ["Active"] * 19 + ["Inactive"],
+            "varying_region": ["North"] * 10 + ["South"] * 10,
+            "entirely_missing": [None] * 20,
+        }
+    )
+
+    result = detect_constant_and_near_constant_features(dataframe)
+
+    assert set(result) == {
+        "constant_segment",
+        "near_constant_status",
+    }
+
+    assert result["constant_segment"] == {
+        "issue_type": "constant_feature",
+        "non_null_count": 20,
+        "distinct_count": 1,
+        "dominant_proportion": 1.0,
+    }
+
+    assert result["near_constant_status"] == {
+        "issue_type": "near_constant_feature",
+        "non_null_count": 20,
+        "distinct_count": 2,
+        "dominant_proportion": 0.95,
+    }
+
+
+def test_near_constant_detection_requires_minimum_sample_size():
+    dataframe = pd.DataFrame(
+        {
+            "status": ["Active"] * 18 + ["Inactive"],
+        }
+    )
+
+    result = detect_constant_and_near_constant_features(dataframe)
+
+    assert result == {}
+
+
+def test_constant_and_near_constant_detection_preserves_dataframe():
+    dataframe = pd.DataFrame(
+        {
+            "status": ["Active"] * 19 + ["Inactive"],
+        }
+    )
+    original = dataframe.copy(deep=True)
+
+    detect_constant_and_near_constant_features(dataframe)
+
+    pd.testing.assert_frame_equal(dataframe, original)
+
+
+def test_constant_and_near_constant_detection_rejects_invalid_threshold():
+    dataframe = pd.DataFrame({"status": ["Active", "Inactive"]})
+
+    with pytest.raises(ValueError):
+        detect_constant_and_near_constant_features(
+            dataframe,
+            dominance_threshold=0,
+        )
+
+    with pytest.raises(ValueError):
+        detect_constant_and_near_constant_features(
             dataframe,
             min_non_null_count=0,
         )
