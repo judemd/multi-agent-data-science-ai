@@ -6,6 +6,7 @@ DataPreparationOperation = Literal[
     "impute_missing",
     "remove_duplicates",
     "exclude_feature",
+    "drop_rows",
 ]
 
 

@@ -48,6 +48,12 @@ DataPreparationTreatment = Literal[
 class DataPreparationIssue(BaseModel):
     """A deterministic data-quality issue with controlled treatment options."""
 
+    issue_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Stable identifier assigned by the detection layer.",
+    )
+
     issue_type: DataPreparationIssueType
 
     column: str | None = None

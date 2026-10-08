@@ -106,6 +106,43 @@ def test_multiple_rules_produce_separate_issues():
     assert [issue.column for issue in issues] == ["age", "status"]
 
 
+def test_same_column_rules_receive_distinct_stable_issue_ids():
+    dataframe = pd.DataFrame({"age": [-5, 25, 150]})
+
+    minimum_rule = make_rule(
+        rule_id="age-minimum",
+        min_value=0,
+        max_value=None,
+    )
+    maximum_rule = make_rule(
+        rule_id="age-maximum",
+        min_value=None,
+        max_value=120,
+    )
+
+    issues = detect_validation_rule_issues(
+        dataframe,
+        [minimum_rule, maximum_rule],
+    )
+
+    assert len(issues) == 2
+    assert [issue.column for issue in issues] == ["age", "age"]
+    assert [issue.issue_id for issue in issues] == [
+        "rule:age-minimum",
+        "rule:age-maximum",
+    ]
+
+    repeated = detect_validation_rule_issues(
+        dataframe,
+        [maximum_rule, minimum_rule],
+    )
+
+    assert {issue.issue_id for issue in repeated} == {
+        "rule:age-minimum",
+        "rule:age-maximum",
+    }
+
+
 def test_duplicate_rule_ids_are_rejected():
     dataframe = pd.DataFrame({"age": [-1, 25]})
     duplicate = make_rule(rule_id="rule-001", max_value=100)

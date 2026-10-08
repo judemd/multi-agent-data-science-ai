@@ -1,6 +1,8 @@
 ﻿import pandas as pd
 import pytest
 
+from domain.data_preparation_issue import DataPreparationIssue
+
 from domain.data_validation_rule import DataValidationRule
 from tools.data_preparation_evidence import build_data_preparation_evidence
 
@@ -17,6 +19,104 @@ def make_rule(**overrides):
         "max_value": 120,
     }
     return DataValidationRule(**(parameters | overrides))
+
+
+def test_ordinary_issue_ids_are_stable_when_evidence_counts_change():
+    first = pd.DataFrame({"revenue": [10.0, None, 20.0]})
+    second = pd.DataFrame({"revenue": [10.0, None, None, 20.0]})
+
+    first_artifact = build_data_preparation_evidence(
+        first,
+        "customers.csv",
+    )
+    second_artifact = build_data_preparation_evidence(
+        second,
+        "customers.csv",
+    )
+
+    first_issue = next(
+        issue for issue in first_artifact.issues
+        if issue.issue_type == "missing_values"
+        and issue.column == "revenue"
+    )
+    second_issue = next(
+        issue for issue in second_artifact.issues
+        if issue.issue_type == "missing_values"
+        and issue.column == "revenue"
+    )
+
+    assert first_issue.issue_id == "missing_values:revenue"
+    assert second_issue.issue_id == first_issue.issue_id
+
+
+def test_aggregation_preserves_validation_rule_issue_id():
+    dataframe = pd.DataFrame({"age": [-1, 25, 150]})
+
+    artifact = build_data_preparation_evidence(
+        dataframe,
+        "customers.csv",
+        approved_validation_rules=[make_rule()],
+    )
+
+    rule_issue = next(
+        issue for issue in artifact.issues
+        if issue.issue_type == "invalid_value"
+    )
+
+    assert rule_issue.issue_id == "rule:age-range-001"
+
+
+def test_mixed_issue_inventory_has_unique_nonempty_ids():
+    dataframe = pd.DataFrame({
+        "age": [-1, 25, 150],
+        "revenue": [10.0, None, 20.0],
+    })
+
+    artifact = build_data_preparation_evidence(
+        dataframe,
+        "customers.csv",
+        approved_validation_rules=[make_rule()],
+    )
+
+    issue_ids = [issue.issue_id for issue in artifact.issues]
+
+    assert issue_ids
+    assert all(issue_ids)
+    assert len(issue_ids) == len(set(issue_ids))
+
+
+def test_duplicate_issue_ids_are_rejected(monkeypatch):
+    def duplicate_detector(dataframe):
+        return [
+            DataPreparationIssue(
+                issue_type="missing_values",
+                column="revenue",
+                evidence="First finding.",
+                allowed_treatments=["retain"],
+            ),
+            DataPreparationIssue(
+                issue_type="missing_values",
+                column="revenue",
+                evidence="Second finding.",
+                allowed_treatments=["retain"],
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "tools.data_preparation_evidence.detect_missing_value_issues",
+        duplicate_detector,
+    )
+
+    dataframe = pd.DataFrame({"revenue": [10.0, None, 20.0]})
+
+    with pytest.raises(
+        ValueError,
+        match="Duplicate data preparation issue ID",
+    ):
+        build_data_preparation_evidence(
+            dataframe,
+            "customers.csv",
+        )
 
 
 def test_existing_call_without_rules_remains_compatible():

@@ -4,6 +4,40 @@ from pydantic import ValidationError
 from domain.data_preparation_issue import DataPreparationIssue
 
 
+def test_issue_accepts_explicit_identifier():
+    issue = DataPreparationIssue(
+        issue_id="missing_values:revenue",
+        issue_type="missing_values",
+        column="revenue",
+        evidence="Revenue contains 12 missing values.",
+        allowed_treatments=["median", "retain"],
+    )
+
+    assert issue.issue_id == "missing_values:revenue"
+
+
+def test_legacy_issue_without_identifier_remains_valid():
+    issue = DataPreparationIssue(
+        issue_type="missing_values",
+        column="revenue",
+        evidence="Revenue contains missing values.",
+        allowed_treatments=["retain"],
+    )
+
+    assert issue.issue_id is None
+
+
+def test_issue_rejects_empty_identifier():
+    with pytest.raises(ValidationError):
+        DataPreparationIssue(
+            issue_id="",
+            issue_type="missing_values",
+            column="revenue",
+            evidence="Revenue contains missing values.",
+            allowed_treatments=["retain"],
+        )
+
+
 def test_data_preparation_issue_accepts_controlled_treatments():
     issue = DataPreparationIssue(
         issue_type="missing_values",

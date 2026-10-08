@@ -1,4 +1,4 @@
-﻿import pandas as pd
+import pandas as pd
 
 from agents.data_preparation_runner import run_data_preparation_agent
 from domain.data_preparation import DataPreparationArtifact
@@ -6,6 +6,9 @@ from domain.data_preparation_review import DataPreparationReview
 from domain.project_state import ProjectState
 from tools.data_preparation_evidence import build_data_preparation_evidence
 from tools.data_preparation_prompt import build_data_preparation_prompt
+from tools.data_loader import load_dataset
+from tools.dataset_fingerprint import fingerprint_dataset_file
+from tools.preparation_evidence_fingerprint import fingerprint_preparation_evidence
 from workflow.states import WorkflowState
 
 
@@ -63,17 +66,43 @@ def run_data_preparation_stage_for_project(
             "Data Preparation can only run from the DATA_PREPARATION state."
         )
 
+    if not project.dataset_path:
+        raise ValueError(
+            "Data Preparation requires a persisted project dataset."
+        )
+
+    dataset_fingerprint = fingerprint_dataset_file(project.dataset_path)
+    persisted_dataframe = load_dataset(project.dataset_path)
+
+    try:
+        pd.testing.assert_frame_equal(
+            dataframe,
+            persisted_dataframe,
+            check_dtype=False,
+        )
+    except AssertionError as exc:
+        raise ValueError(
+            "The supplied DataFrame does not match the persisted project dataset."
+        ) from exc
+
     artifact = build_data_preparation_stage_artifact(
-        dataframe,
+        persisted_dataframe,
         file_name,
     )
 
+    evidence_fingerprint = fingerprint_preparation_evidence(artifact)
     prompt = build_data_preparation_prompt(artifact)
-
     review = run_data_preparation_agent(prompt)
+
+    if fingerprint_dataset_file(project.dataset_path) != dataset_fingerprint:
+        raise ValueError(
+            "The project dataset changed during Data Preparation review."
+        )
 
     project.data_preparation = artifact
     project.data_preparation_review = review
+    project.data_preparation_dataset_fingerprint = dataset_fingerprint
+    project.data_preparation_evidence_fingerprint = evidence_fingerprint
     project.current_state = WorkflowState.AWAITING_PREPARATION_APPROVAL
 
     return project

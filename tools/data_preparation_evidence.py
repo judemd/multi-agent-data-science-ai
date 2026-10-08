@@ -189,6 +189,20 @@ def build_data_preparation_evidence(
         ),
     ]
 
+    seen_issue_ids: set[str] = set()
+
+    for issue in issues:
+        if issue.issue_id is None:
+            scope = issue.column if issue.column is not None else "dataset"
+            issue.issue_id = f"{issue.issue_type}:{scope}"
+
+        if issue.issue_id in seen_issue_ids:
+            raise ValueError(
+                f"Duplicate data preparation issue ID: '{issue.issue_id}'."
+            )
+
+        seen_issue_ids.add(issue.issue_id)
+
     return DataPreparationArtifact(
         file_name=file_name,
         row_count=len(dataframe),

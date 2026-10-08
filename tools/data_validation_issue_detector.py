@@ -29,6 +29,7 @@ def detect_validation_rule_issues(
 
         issues.append(
             DataPreparationIssue(
+                issue_id=f"rule:{rule.rule_id}",
                 issue_type=rule.issue_type,
                 column=rule.column,
                 evidence=(

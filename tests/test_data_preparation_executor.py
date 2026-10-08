@@ -163,7 +163,7 @@ def test_unsupported_imputation_strategy_raises():
         DataPreparationAction(
             operation="impute_missing",
             column="score",
-            strategy="mean",
+            strategy="unsupported_strategy",
             reason="Test unsupported strategy.",
         )
     ]
@@ -176,3 +176,142 @@ def test_unsupported_imputation_strategy_raises():
             dataframe,
             actions,
         )
+
+def test_mean_imputation():
+    dataframe = pd.DataFrame(
+        {
+            "score": [10.0, 20.0, None, 60.0],
+        }
+    )
+
+    actions = [
+        DataPreparationAction(
+            operation="impute_missing",
+            column="score",
+            strategy="mean",
+            reason="Human approved mean imputation.",
+        )
+    ]
+
+    result = execute_data_preparation_actions(
+        dataframe,
+        actions,
+    )
+
+    assert result["score"].tolist() == [
+        10.0,
+        20.0,
+        30.0,
+        60.0,
+    ]
+    assert pd.isna(dataframe.loc[2, "score"])
+
+
+def test_mode_imputation_for_categorical_column():
+    dataframe = pd.DataFrame(
+        {"segment": ["retail", None, "business", "retail"]}
+    )
+
+    action = DataPreparationAction(
+        operation="impute_missing",
+        column="segment",
+        strategy="mode",
+        reason="Human approved categorical mode imputation.",
+    )
+
+    result = execute_data_preparation_actions(dataframe, [action])
+
+    assert result["segment"].tolist() == [
+        "retail",
+        "retail",
+        "business",
+        "retail",
+    ]
+    assert pd.isna(dataframe.loc[1, "segment"])
+
+
+def test_mode_imputation_uses_first_observed_value_for_ties():
+    dataframe = pd.DataFrame(
+        {"segment": ["business", "retail", None, "retail", "business"]}
+    )
+
+    action = DataPreparationAction(
+        operation="impute_missing",
+        column="segment",
+        strategy="mode",
+        reason="Use deterministic tie-breaking.",
+    )
+
+    result = execute_data_preparation_actions(dataframe, [action])
+
+    assert result.loc[2, "segment"] == "business"
+
+
+def test_mode_imputation_rejects_all_missing_column():
+    dataframe = pd.DataFrame(
+        {"segment": [None, None, None]}
+    )
+
+    action = DataPreparationAction(
+        operation="impute_missing",
+        column="segment",
+        strategy="mode",
+        reason="Test empty categorical column.",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Cannot calculate mode",
+    ):
+        execute_data_preparation_actions(dataframe, [action])
+
+
+def test_drop_rows_only_for_approved_column():
+    dataframe = pd.DataFrame(
+        {
+            "revenue": [10.0, None, 30.0, 40.0],
+            "segment": ["retail", "business", None, "retail"],
+        }
+    )
+
+    action = DataPreparationAction(
+        operation="drop_rows",
+        column="revenue",
+        reason="Human approved removing rows with missing revenue.",
+    )
+
+    result = execute_data_preparation_actions(dataframe, [action])
+
+    assert result["revenue"].tolist() == [10.0, 30.0, 40.0]
+    assert result["segment"].tolist()[:1] == ["retail"]
+    assert pd.isna(result.loc[1, "segment"])
+    assert result.index.tolist() == [0, 1, 2]
+
+    # Execution must not mutate the source dataset.
+    assert len(dataframe) == 4
+    assert pd.isna(dataframe.loc[1, "revenue"])
+
+
+def test_drop_rows_requires_column():
+    dataframe = pd.DataFrame({"revenue": [10.0, None]})
+
+    action = DataPreparationAction(
+        operation="drop_rows",
+        reason="Test missing column.",
+    )
+
+    with pytest.raises(ValueError, match="requires a column"):
+        execute_data_preparation_actions(dataframe, [action])
+
+
+def test_drop_rows_rejects_unknown_column():
+    dataframe = pd.DataFrame({"revenue": [10.0, None]})
+
+    action = DataPreparationAction(
+        operation="drop_rows",
+        column="unknown",
+        reason="Test unknown column.",
+    )
+
+    with pytest.raises(ValueError, match="unknown column"):
+        execute_data_preparation_actions(dataframe, [action])

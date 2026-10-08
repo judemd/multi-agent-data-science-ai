@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_review import DataPreparationReview
+from domain.data_preparation_treatment_plan import DataPreparationTreatmentPlan
 from domain.hitl_decision import HITLDecision
 from domain.modeling import ModelingArtifact
 from domain.modeling_review import ModelingReview
@@ -21,10 +22,23 @@ class ProjectState(BaseModel):
 
     dataset_path: str | None = None
     prepared_dataset_path: str | None = None
+    data_preparation_dataset_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    data_preparation_evidence_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     problem_framing: ProblemFramingArtifact | None = None
 
     data_preparation: DataPreparationArtifact | None = None
     data_preparation_review: DataPreparationReview | None = None
+    data_preparation_treatment_plan: DataPreparationTreatmentPlan | None = None
     data_preparation_decision: HITLDecision | None = None
 
     modeling: ModelingArtifact | None = None

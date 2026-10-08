@@ -17,6 +17,22 @@ def execute_data_preparation_actions(
         if action.operation == "remove_duplicates":
             prepared = prepared.drop_duplicates().reset_index(drop=True)
 
+        elif action.operation == "drop_rows":
+            if not action.column:
+                raise ValueError(
+                    "drop_rows requires a column."
+                )
+
+            if action.column not in prepared.columns:
+                raise ValueError(
+                    f"Cannot drop rows for unknown column "
+                    f"'{action.column}'."
+                )
+
+            prepared = prepared.loc[
+                prepared[action.column].notna()
+            ].reset_index(drop=True)
+
         elif action.operation == "exclude_feature":
             if not action.column:
                 raise ValueError(
@@ -42,26 +58,55 @@ def execute_data_preparation_actions(
                     f"unknown column '{action.column}'."
                 )
 
-            if action.strategy == "median":
+            if action.strategy in ("median", "mean"):
                 if not pd.api.types.is_numeric_dtype(
                     prepared[action.column]
                 ):
                     raise ValueError(
-                        f"Median imputation requires a numeric column: "
+                        f"{action.strategy.capitalize()} imputation "
+                        f"requires a numeric column: "
                         f"'{action.column}'."
                     )
 
-                median = prepared[action.column].median()
+                statistic = (
+                    prepared[action.column].median()
+                    if action.strategy == "median"
+                    else prepared[action.column].mean()
+                )
 
-                if pd.isna(median):
+                if pd.isna(statistic):
                     raise ValueError(
-                        f"Cannot calculate median for column "
+                        f"Cannot calculate {action.strategy} for column "
                         f"'{action.column}'."
                     )
 
                 prepared[action.column] = prepared[
                     action.column
-                ].fillna(median)
+                ].fillna(statistic)
+
+            elif action.strategy == "mode":
+                non_missing = prepared[action.column].dropna()
+
+                if non_missing.empty:
+                    raise ValueError(
+                        f"Cannot calculate mode for column "
+                        f"'{action.column}'."
+                    )
+
+                frequencies = non_missing.value_counts(
+                    dropna=True,
+                    sort=False,
+                )
+                highest_frequency = frequencies.max()
+
+                for value in non_missing:
+                    if frequencies.loc[value] == highest_frequency:
+                        selected_mode = value
+                        break
+
+                prepared[action.column] = prepared[
+                    action.column
+                ].fillna(selected_mode)
 
             else:
                 raise ValueError(

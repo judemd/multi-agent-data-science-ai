@@ -129,3 +129,83 @@ def test_rejected_data_preparation_decision_survives_save_and_load(tmp_path):
     assert loaded.data_preparation_decision == decision
 
 
+
+
+def test_preparation_fingerprints_survive_save_and_load(tmp_path):
+    store = ProjectStore(storage_dir=str(tmp_path))
+
+    original = ProjectState(
+        project_id="project-fingerprints",
+        project_name="Fingerprint Persistence",
+        data_preparation_dataset_fingerprint="a" * 64,
+        data_preparation_evidence_fingerprint="b" * 64,
+    )
+
+    store.save(original)
+    loaded = store.load("project-fingerprints")
+
+    assert loaded.data_preparation_dataset_fingerprint == "a" * 64
+    assert loaded.data_preparation_evidence_fingerprint == "b" * 64
+
+
+def test_legacy_project_without_fingerprint_fields_still_loads(tmp_path):
+    store = ProjectStore(storage_dir=str(tmp_path))
+    path = tmp_path / "legacy-project.json"
+    path.write_text(
+        '{"project_id":"legacy-project","project_name":"Legacy Project"}',
+        encoding="utf-8",
+    )
+
+    loaded = store.load("legacy-project")
+
+    assert loaded.data_preparation_dataset_fingerprint is None
+    assert loaded.data_preparation_evidence_fingerprint is None
+
+
+def test_preparation_treatment_plan_survives_save_and_load(tmp_path):
+    from domain.data_preparation_treatment_decision import (
+        DataPreparationTreatmentDecision,
+    )
+    from domain.data_preparation_treatment_plan import (
+        DataPreparationTreatmentPlan,
+    )
+
+    store = ProjectStore(storage_dir=str(tmp_path))
+
+    plan = DataPreparationTreatmentPlan(
+        dataset_fingerprint="a" * 64,
+        evidence_fingerprint="b" * 64,
+        reviewer="data_scientist",
+        decisions=[
+            DataPreparationTreatmentDecision(
+                issue_id="missing_values:revenue",
+                treatment="median",
+                rationale="Approved median imputation.",
+            ),
+        ],
+    )
+
+    original = ProjectState(
+        project_id="project-treatment-plan",
+        project_name="Treatment Plan Persistence",
+        data_preparation_treatment_plan=plan,
+    )
+
+    store.save(original)
+    loaded = store.load("project-treatment-plan")
+
+    assert loaded.data_preparation_treatment_plan == plan
+
+
+def test_legacy_project_without_treatment_plan_still_loads(tmp_path):
+    store = ProjectStore(storage_dir=str(tmp_path))
+    path = tmp_path / "legacy-treatment-plan.json"
+    path.write_text(
+        '{"project_id":"legacy-treatment-plan",'
+        '"project_name":"Legacy Project"}',
+        encoding="utf-8",
+    )
+
+    loaded = store.load("legacy-treatment-plan")
+
+    assert loaded.data_preparation_treatment_plan is None
