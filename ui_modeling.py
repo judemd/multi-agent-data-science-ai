@@ -329,7 +329,7 @@ def render_modeling_hitl_controls(
         st.success(
             "Modeling approved. The workflow may proceed to Evaluation."
         )
-        return
+        st.rerun()
 
     if project.current_state == WorkflowState.BLOCKED:
         st.error(

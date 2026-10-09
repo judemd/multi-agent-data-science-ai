@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_treatment_plan import DataPreparationTreatmentPlan
+from domain.executive_evaluation_summary import ExecutiveEvaluationSummary
 from domain.evaluation import EvaluationArtifact
 from domain.finalization_revision import FinalizationRevisionResolution
 from domain.hitl_decision import HITLDecision
@@ -36,6 +37,7 @@ class FinalizationArtifact(BaseModel):
     evaluation_decision: HITLDecision
 
     unresolved_risks: list[str] = Field(default_factory=list)
+    executive_evaluation_summary: ExecutiveEvaluationSummary | None = None
     revision_resolution: FinalizationRevisionResolution | None = None
 
     deployment_approved: bool = Field(default=False)

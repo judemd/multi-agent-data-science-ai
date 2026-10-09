@@ -65,6 +65,23 @@ def test_evaluation_produces_evidence_and_advances_state(tmp_path):
     assert 0 <= project.evaluation.model_metrics.roc_auc <= 1
     assert 0 <= project.evaluation.baseline_metrics.accuracy <= 1
 
+    # Threshold selection uses internal training-only validation.
+    assert project.evaluation.selected_threshold is not None
+    assert 0.0 <= project.evaluation.selected_threshold <= 1.0
+    assert project.evaluation.validation_f1 is not None
+    assert 0.0 <= project.evaluation.validation_f1 <= 1.0
+    assert project.evaluation.threshold_metrics is not None
+
+    # Both threshold choices use the same held-out probability scores.
+    assert project.evaluation.threshold_metrics.roc_auc == pytest.approx(
+        project.evaluation.model_metrics.roc_auc
+    )
+
+    assert any(
+        "internal training-only validation split" in limitation
+        for limitation in project.evaluation.limitations
+    )
+
 
 def test_evaluation_uses_only_approved_features(tmp_path):
     project = build_project(tmp_path)

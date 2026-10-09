@@ -293,3 +293,91 @@ def test_training_rejects_non_binary_encoded_labels(training_data):
             "Logistic Regression",
             ["age", "region"],
         )
+def test_threshold_selection_maximizes_validation_f1():
+    from tools.model_training import select_classification_threshold
+
+    labels = pd.Series([0, 0, 1, 1])
+    probabilities = [0.10, 0.40, 0.45, 0.80]
+
+    result = select_classification_threshold(
+        labels,
+        probabilities,
+    )
+
+    assert result.threshold == pytest.approx(0.45)
+    assert result.validation_f1 == pytest.approx(1.0)
+
+
+def test_threshold_selection_uses_highest_threshold_for_ties():
+    from tools.model_training import select_classification_threshold
+
+    labels = pd.Series([0, 1])
+    probabilities = [0.10, 0.90]
+
+    result = select_classification_threshold(
+        labels,
+        probabilities,
+    )
+
+    assert result.threshold == pytest.approx(0.90)
+    assert result.validation_f1 == pytest.approx(1.0)
+
+def test_training_threshold_selection_uses_training_only(training_data):
+    first = train_selected_model(
+        training_data,
+        "churned",
+        "Logistic Regression",
+        ["age", "region"],
+    )
+    second = train_selected_model(
+        training_data,
+        "churned",
+        "Logistic Regression",
+        ["age", "region"],
+    )
+
+    assert 0.0 <= first.threshold_selection.threshold <= 1.0
+    assert 0.0 <= first.threshold_selection.validation_f1 <= 1.0
+    assert first.threshold_selection == second.threshold_selection
+
+    assert first.validation_row_count > 0
+    assert first.validation_row_count < first.train_row_count
+
+    assert set(first.validation_indices).isdisjoint(
+        set(first.x_test.index)
+    )
+    assert first.x_test.index.tolist() == second.x_test.index.tolist()
+
+def test_evaluation_reports_selected_threshold_separately(training_data):
+    trained = train_selected_model(
+        training_data,
+        "churned",
+        "Logistic Regression",
+        ["age", "region"],
+    )
+
+    result = evaluate_training_result(trained)
+
+    assert result.selected_threshold == pytest.approx(
+        trained.threshold_selection.threshold
+    )
+    assert result.validation_f1 == pytest.approx(
+        trained.threshold_selection.validation_f1
+    )
+
+    assert 0.0 <= result.threshold_metrics.precision <= 1.0
+    assert 0.0 <= result.threshold_metrics.recall <= 1.0
+    assert 0.0 <= result.threshold_metrics.f1 <= 1.0
+
+    # The original default-threshold evaluation remains unchanged.
+    from sklearn.metrics import f1_score
+
+    default_predictions = trained.model_pipeline.predict(trained.x_test)
+    assert result.model_metrics.f1 == pytest.approx(
+        f1_score(trained.y_test, default_predictions, zero_division=0)
+    )
+
+    # ROC-AUC is threshold-independent for the same model scores.
+    assert result.threshold_metrics.roc_auc == pytest.approx(
+        result.model_metrics.roc_auc
+    )

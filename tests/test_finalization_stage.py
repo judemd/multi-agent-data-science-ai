@@ -16,6 +16,9 @@ from domain.modeling import ModelingArtifact
 from domain.problem_framing import ProblemFramingArtifact
 from domain.project_state import ProjectState
 from tools.dataset_fingerprint import fingerprint_dataset_file
+from tools.finalization_evidence_fingerprint import (
+    fingerprint_finalization_evidence,
+)
 from tools.preparation_evidence_fingerprint import (
     fingerprint_preparation_evidence,
 )
@@ -162,6 +165,41 @@ def test_finalization_creates_handoff_pending_human_approval(tmp_path):
     assert restored.finalization == project.finalization
 
 
+def test_executive_summary_is_saved_and_fingerprinted(tmp_path):
+    project = build_project(tmp_path)
+
+    run_finalization_stage(project)
+
+    artifact = project.finalization
+    assert artifact is not None
+
+    summary = artifact.executive_evaluation_summary
+    assert summary is not None
+    assert "Logistic Regression" in summary.performance_summary
+    assert "0.800" in summary.performance_summary
+    assert "Human Evaluation decision: GO" in summary.assessment
+    assert "Human Reviewer" in summary.evaluation_human_decision
+    assert summary.risks_and_limitations == ["Single holdout split."]
+    assert summary.deployment_authorized is False
+
+    original_fingerprint = project.finalization_evidence_fingerprint
+    assert original_fingerprint == fingerprint_finalization_evidence(artifact)
+
+    restored = ProjectState.model_validate_json(project.model_dump_json())
+    assert restored.finalization == artifact
+    assert (
+        restored.finalization.executive_evaluation_summary == summary
+    )
+
+    changed = artifact.model_copy(deep=True)
+    assert changed.executive_evaluation_summary is not None
+    changed.executive_evaluation_summary.assessment = (
+        "Altered executive assessment."
+    )
+
+    assert fingerprint_finalization_evidence(changed) != original_fingerprint
+
+
 def test_finalization_rejects_wrong_state_without_mutation(tmp_path):
     project = build_project(tmp_path)
     project.current_state = WorkflowState.EVALUATION
@@ -291,3 +329,61 @@ def test_finalization_rejects_missing_treatment_decision(tmp_path):
     assert project.model_dump() == original
     assert project.current_state == WorkflowState.FINALIZATION
     assert project.finalization is None
+
+@pytest.mark.parametrize(
+    "decision",
+    [
+        None,
+        HITLDecision(
+            decision="reject",
+            reviewer="Human Reviewer",
+            rationale="Reconstruction needs correction.",
+        ),
+        HITLDecision(
+            decision="request_revision",
+            reviewer="Human Reviewer",
+            rationale="More context is required.",
+        ),
+    ],
+)
+def test_reconstructed_framing_requires_human_approval_without_mutation(
+    tmp_path, decision
+):
+    project = build_project(tmp_path)
+    project.problem_framing_provenance = (
+        "Reconstructed from preserved business context; "
+        "original structured artifact unavailable."
+    )
+    project.problem_framing_recovery_decision = decision
+
+    original = project.model_dump()
+
+    with pytest.raises(ValueError, match="human approval of reconstructed"):
+        run_finalization_stage(project)
+
+    assert project.model_dump() == original
+
+
+def test_approved_reconstructed_framing_allows_handoff(tmp_path):
+    project = build_project(tmp_path)
+    project.problem_framing_provenance = (
+        "Reconstructed from preserved business context; "
+        "original structured artifact unavailable."
+    )
+    project.problem_framing_recovery_decision = HITLDecision(
+        decision="approve",
+        reviewer="Human Reviewer",
+        rationale="Reviewed the reconstruction against preserved context.",
+    )
+
+    run_finalization_stage(project)
+
+    assert project.current_state == WorkflowState.AWAITING_HANDOFF_APPROVAL
+    assert project.problem_framing_recovery_decision.decision == "approve"
+    assert any(
+        "Problem Framing was reconstructed" in risk
+        and "Human Reviewer" in risk
+        and "does not establish historical approval" in risk
+        for risk in project.finalization.unresolved_risks
+    )
+    assert project.finalization is not None

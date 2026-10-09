@@ -42,6 +42,45 @@ def render_finalization_review(
         f"{artifact.problem_framing.target_outcome}"
     )
 
+    summary = artifact.executive_evaluation_summary
+
+    if summary is not None:
+        st.markdown("#### Executive Evaluation Summary")
+
+        st.write(f"**Executive assessment:** {summary.assessment}")
+        st.write(f"**Measured performance:** {summary.performance_summary}")
+
+        st.markdown("**Business implications**")
+        for implication in summary.business_implications:
+            st.write(f"- {implication}")
+
+        st.markdown("**Recommended actions**")
+        for action in summary.recommended_actions:
+            st.write(f"- {action}")
+
+        st.markdown("**Risks and limitations**")
+        if summary.risks_and_limitations:
+            for limitation in summary.risks_and_limitations:
+                st.write(f"- {limitation}")
+        else:
+            st.write("No evaluation limitations were recorded.")
+
+        st.write(
+            "**Recorded human Evaluation decision:** "
+            f"{summary.evaluation_human_decision}"
+        )
+
+        if not summary.deployment_authorized:
+            st.caption(
+                "Production deployment is not authorized by this "
+                "evaluation or POC handoff."
+            )
+    else:
+        st.caption(
+            "This historical handoff package does not contain "
+            "an Executive Evaluation Summary."
+        )
+
     st.markdown("#### Dataset Provenance")
     st.write(f"**Source:** {artifact.source_dataset_path}")
     st.write(f"**Prepared:** {artifact.prepared_dataset_path}")
@@ -99,30 +138,58 @@ def render_finalization_review(
         "roc_auc",
     )
 
-    metrics_table = pd.DataFrame(
-        {
-            "Metric": metric_names,
-            "Selected model": [
-                getattr(evaluation.model_metrics, name)
-                for name in metric_names
-            ],
-            "Baseline": [
-                getattr(evaluation.baseline_metrics, name)
-                for name in metric_names
-            ],
-        }
-    )
+    metrics_columns = {
+        "Metric": metric_names,
+        "Model (default threshold)": [
+            getattr(evaluation.model_metrics, name)
+            for name in metric_names
+        ],
+    }
+
+    if evaluation.threshold_metrics is not None:
+        metrics_columns["Model (selected threshold)"] = [
+            getattr(evaluation.threshold_metrics, name)
+            for name in metric_names
+        ]
+
+    metrics_columns["Baseline"] = [
+        getattr(evaluation.baseline_metrics, name)
+        for name in metric_names
+    ]
+
+    metrics_table = pd.DataFrame(metrics_columns)
+    numeric_formats = {
+        column: "{:.3f}"
+        for column in metrics_table.columns
+        if column != "Metric"
+    }
 
     st.dataframe(
-        metrics_table.style.format(
-            {
-                "Selected model": "{:.3f}",
-                "Baseline": "{:.3f}",
-            }
-        ),
+        metrics_table.style.format(numeric_formats),
         hide_index=True,
         use_container_width=True,
     )
+
+    if (
+        evaluation.selected_threshold is not None
+        and evaluation.validation_f1 is not None
+        and evaluation.threshold_metrics is not None
+    ):
+        st.write(
+            "**Validation-selected classification threshold:** "
+            f"{evaluation.selected_threshold:.3f}"
+        )
+        st.caption(
+            f"Training-only validation F1: {evaluation.validation_f1:.3f}. "
+            "The selected threshold was evaluated on the held-out test set. "
+            "Threshold adjustment can change the balance between "
+            "detected churners and false-positive predictions."
+        )
+    else:
+        st.caption(
+            "Historical evaluation: no validation-selected threshold "
+            "was recorded."
+        )
 
     st.markdown("#### Unresolved Risks and Limitations")
 

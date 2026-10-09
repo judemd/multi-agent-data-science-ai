@@ -1,6 +1,9 @@
 """Deterministic Finalization handoff assembly."""
 
 from domain.finalization import FinalizationArtifact
+from tools.executive_evaluation_summary import (
+    build_executive_evaluation_summary,
+)
 from domain.project_state import ProjectState
 from tools.data_preparation_treatment_plan_validator import (
     validate_data_preparation_treatment_plan,
@@ -24,6 +27,21 @@ def run_finalization_stage(project: ProjectState) -> ProjectState:
     if project.problem_framing is None:
         raise ValueError("Finalization requires Problem Framing evidence.")
 
+    if project.problem_framing_provenance is not None:
+        if not project.problem_framing_provenance.strip():
+            raise ValueError(
+                "Finalization requires meaningful Problem Framing provenance."
+            )
+
+        recovery_decision = project.problem_framing_recovery_decision
+        if (
+            recovery_decision is None
+            or recovery_decision.decision != "approve"
+        ):
+            raise ValueError(
+                "Finalization requires human approval of reconstructed "
+                "Problem Framing evidence."
+            )
     if project.data_preparation is None:
         raise ValueError("Finalization requires Data Preparation evidence.")
 
@@ -149,6 +167,17 @@ def run_finalization_stage(project: ProjectState) -> ProjectState:
         "is not recorded in ProjectState."
     ]
 
+    if project.problem_framing_provenance is not None:
+        recovery_decision = project.problem_framing_recovery_decision
+        unresolved_risks.append(
+            "Problem Framing was reconstructed rather than recovered "
+            "as an original structured artifact. Provenance: "
+            f"{project.problem_framing_provenance} "
+            "New reconstruction approval reviewer: "
+            f"{recovery_decision.reviewer}; "
+            f"rationale: {recovery_decision.rationale}. "
+            "This approval does not establish historical approval."
+        )
     for treatment_decision in plan.decisions:
         if treatment_decision.treatment not in ("retain", "investigate"):
             continue
@@ -191,6 +220,12 @@ def run_finalization_stage(project: ProjectState) -> ProjectState:
         modeling_decision=project.modeling_decision.model_copy(deep=True),
         evaluation_decision=project.evaluation_decision.model_copy(deep=True),
         unresolved_risks=unresolved_risks,
+        executive_evaluation_summary=(
+            build_executive_evaluation_summary(
+                project.evaluation,
+                project.evaluation_decision,
+            )
+        ),
         revision_resolution=(
             project.finalization_revision_resolution.model_copy(deep=True)
             if project.finalization_revision_resolution is not None

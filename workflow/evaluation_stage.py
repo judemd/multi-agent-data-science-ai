@@ -95,6 +95,8 @@ def run_evaluation_stage(project: ProjectState) -> ProjectState:
     limitations = [
         "Evaluation uses one stratified 80/20 holdout split.",
         "No hyperparameter tuning or cross-validation was performed.",
+        "The classification threshold was selected by maximizing F1 "
+        "on one internal training-only validation split.",
         "Results do not establish suitability for deployment.",
     ]
 
@@ -124,6 +126,11 @@ def run_evaluation_stage(project: ProjectState) -> ProjectState:
         ),
         baseline_metrics=EvaluationMetrics(
             **vars(result.baseline_metrics)
+        ),
+        selected_threshold=result.selected_threshold,
+        validation_f1=result.validation_f1,
+        threshold_metrics=EvaluationMetrics(
+            **vars(result.threshold_metrics)
         ),
         limitations=limitations,
     )

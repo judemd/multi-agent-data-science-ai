@@ -1,6 +1,7 @@
 """Deterministic, human-controlled model training utilities."""
 
 from dataclasses import dataclass
+from sklearn.base import clone
 
 import numpy as np
 import pandas as pd
@@ -100,6 +101,9 @@ class TrainingResult:
     feature_columns: list[str]
     train_row_count: int
     test_row_count: int
+    threshold_selection: "ThresholdSelectionResult"
+    validation_row_count: int
+    validation_indices: list[int]
 
 
 def train_selected_model(
@@ -190,6 +194,30 @@ def train_selected_model(
         random_state=42,
     )
 
+    x_inner, x_validation, y_inner, y_validation = train_test_split(
+        x_train,
+        y_train,
+        test_size=0.25,
+        stratify=y_train,
+        random_state=42,
+    )
+
+    validation_pipeline = clone(model_pipeline)
+    validation_pipeline.fit(x_inner, y_inner)
+
+    validation_classes = list(
+        validation_pipeline.named_steps["classifier"].classes_
+    )
+    positive_index = validation_classes.index(1)
+    validation_probabilities = validation_pipeline.predict_proba(
+        x_validation
+    )[:, positive_index]
+
+    threshold_selection = select_classification_threshold(
+        y_validation,
+        validation_probabilities,
+    )
+
     model_pipeline.fit(x_train, y_train)
     baseline_pipeline.fit(x_train, y_train)
 
@@ -202,6 +230,55 @@ def train_selected_model(
         feature_columns=list(feature_columns),
         train_row_count=len(x_train),
         test_row_count=len(x_test),
+        threshold_selection=threshold_selection,
+        validation_row_count=len(x_validation),
+        validation_indices=x_validation.index.tolist(),
+    )
+
+
+@dataclass(frozen=True)
+class ThresholdSelectionResult:
+    """Threshold chosen using validation data only."""
+
+    threshold: float
+    validation_f1: float
+
+
+def select_classification_threshold(
+    labels: pd.Series,
+    probabilities: list[float] | np.ndarray,
+) -> ThresholdSelectionResult:
+    """Maximize validation F1, breaking ties toward higher thresholds."""
+
+    y_true = np.asarray(labels)
+    scores = np.asarray(probabilities, dtype=float)
+
+    if y_true.ndim != 1 or scores.ndim != 1:
+        raise ValueError("Labels and probabilities must be one-dimensional.")
+    if len(y_true) == 0 or len(y_true) != len(scores):
+        raise ValueError("Labels and probabilities must have equal nonzero length.")
+    if not np.isin(y_true, [0, 1]).all():
+        raise ValueError("Threshold selection requires binary labels 0 and 1.")
+    if not np.isfinite(scores).all() or ((scores < 0) | (scores > 1)).any():
+        raise ValueError("Probabilities must be finite values between 0 and 1.")
+
+    best_threshold = None
+    best_f1 = -1.0
+
+    for threshold in np.unique(scores):
+        predictions = (scores >= threshold).astype(int)
+        score = float(f1_score(y_true, predictions, zero_division=0))
+
+        if score > best_f1 or (
+            score == best_f1
+            and (best_threshold is None or threshold > best_threshold)
+        ):
+            best_threshold = float(threshold)
+            best_f1 = score
+
+    return ThresholdSelectionResult(
+        threshold=best_threshold,
+        validation_f1=best_f1,
     )
 
 
@@ -226,6 +303,9 @@ class ModelEvaluationResult:
     train_row_count: int
     test_row_count: int
     feature_columns: list[str]
+    selected_threshold: float
+    validation_f1: float
+    threshold_metrics: ClassificationMetrics
 
 
 def evaluate_training_result(
@@ -246,8 +326,10 @@ def evaluate_training_result(
             "Evaluation requires binary target labels 0 and 1."
         )
 
-    def calculate_metrics(pipeline: Pipeline) -> ClassificationMetrics:
-        predictions = pipeline.predict(training_result.x_test)
+    def calculate_metrics(
+        pipeline: Pipeline,
+        threshold: float | None = None,
+    ) -> ClassificationMetrics:
         probabilities = pipeline.predict_proba(
             training_result.x_test
         )
@@ -257,6 +339,11 @@ def evaluate_training_result(
         )
         positive_index = classes.index(1)
         positive_scores = probabilities[:, positive_index]
+        predictions = (
+            pipeline.predict(training_result.x_test)
+            if threshold is None
+            else (positive_scores >= threshold).astype(int)
+        )
 
         return ClassificationMetrics(
             accuracy=float(accuracy_score(y_test, predictions)),
@@ -288,6 +375,12 @@ def evaluate_training_result(
         ),
         baseline_metrics=calculate_metrics(
             training_result.baseline_pipeline
+        ),
+        selected_threshold=training_result.threshold_selection.threshold,
+        validation_f1=training_result.threshold_selection.validation_f1,
+        threshold_metrics=calculate_metrics(
+            training_result.model_pipeline,
+            threshold=training_result.threshold_selection.threshold,
         ),
         train_row_count=training_result.train_row_count,
         test_row_count=training_result.test_row_count,

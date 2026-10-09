@@ -6,6 +6,9 @@ import streamlit as st
 from domain.evaluation import EvaluationArtifact
 from domain.hitl_decision import HITLDecision
 from domain.project_state import ProjectState
+from tools.executive_evaluation_summary import (
+    build_executive_evaluation_summary,
+)
 from tools.project_store import ProjectStore
 from workflow.evaluation_workflow import apply_evaluation_decision
 from workflow.states import WorkflowState
@@ -36,29 +39,87 @@ def render_evaluation_review(evaluation: EvaluationArtifact) -> None:
         "roc_auc",
     )
 
-    metrics_table = pd.DataFrame(
-        {
-            "Metric": metric_names,
-            "Selected model": [
-                getattr(evaluation.model_metrics, name)
-                for name in metric_names
-            ],
-            "Baseline": [
-                getattr(evaluation.baseline_metrics, name)
-                for name in metric_names
-            ],
-        }
-    )
+    metrics_columns = {
+        "Metric": metric_names,
+        "Model (default threshold)": [
+            getattr(evaluation.model_metrics, name)
+            for name in metric_names
+        ],
+    }
+
+    if evaluation.threshold_metrics is not None:
+        metrics_columns["Model (selected threshold)"] = [
+            getattr(evaluation.threshold_metrics, name)
+            for name in metric_names
+        ]
+
+    metrics_columns["Baseline"] = [
+        getattr(evaluation.baseline_metrics, name)
+        for name in metric_names
+    ]
+
+    metrics_table = pd.DataFrame(metrics_columns)
+    numeric_formats = {
+        column: "{:.3f}"
+        for column in metrics_table.columns
+        if column != "Metric"
+    }
 
     st.dataframe(
-        metrics_table.style.format(
-            {
-                "Selected model": "{:.3f}",
-                "Baseline": "{:.3f}",
-            }
-        ),
+        metrics_table.style.format(numeric_formats),
         hide_index=True,
         use_container_width=True,
+    )
+
+    if (
+        evaluation.selected_threshold is not None
+        and evaluation.validation_f1 is not None
+        and evaluation.threshold_metrics is not None
+    ):
+        st.write(
+            "**Validation-selected classification threshold:** "
+            f"{evaluation.selected_threshold:.3f}"
+        )
+        st.caption(
+            f"Training-only validation F1: {evaluation.validation_f1:.3f}. "
+            "The threshold was selected before evaluating the held-out "
+            "test set. Lower thresholds can identify more potential "
+            "churners but may also increase false-positive predictions."
+        )
+    else:
+        st.caption(
+            "Historical evaluation: no validation-selected threshold "
+            "was recorded."
+        )
+
+    summary = build_executive_evaluation_summary(evaluation)
+
+    st.markdown("#### Executive Evaluation Summary ? Decision Pending")
+    st.write(f"**Executive assessment:** {summary.assessment}")
+    st.write(f"**Measured performance:** {summary.performance_summary}")
+
+    st.markdown("**Business implications**")
+    for implication in summary.business_implications:
+        st.write(f"- {implication}")
+
+    st.markdown("**Recommended actions**")
+    for action in summary.recommended_actions:
+        st.write(f"- {action}")
+
+    st.markdown("**Risks and limitations**")
+    if summary.risks_and_limitations:
+        for limitation in summary.risks_and_limitations:
+            st.write(f"- {limitation}")
+    else:
+        st.write("No evaluation limitations were recorded.")
+
+    st.write(
+        "**Human Evaluation decision:** "
+        f"{summary.evaluation_human_decision}"
+    )
+    st.caption(
+        "This is a read-only preview. No human decision has been "
+        "recorded by this summary, and deployment is not authorized."
     )
 
     features_tab, exclusions_tab, limitations_tab = st.tabs(

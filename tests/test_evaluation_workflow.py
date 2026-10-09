@@ -223,3 +223,48 @@ def test_evaluation_decision_history_survives_json_roundtrip():
         restored.evaluation_decision_history[0].decision
         == "request_revision"
     )
+def test_historical_evaluation_artifact_remains_valid():
+    artifact = build_project().evaluation
+
+    assert artifact.selected_threshold is None
+    assert artifact.validation_f1 is None
+    assert artifact.threshold_metrics is None
+
+    restored = EvaluationArtifact.model_validate(
+        artifact.model_dump(exclude_none=True)
+    )
+    assert restored == artifact
+
+
+def test_threshold_evaluation_artifact_round_trips():
+    artifact = build_project().evaluation.model_copy(
+        update={
+            "selected_threshold": 0.35,
+            "validation_f1": 0.72,
+            "threshold_metrics": EvaluationMetrics(
+                accuracy=0.76,
+                precision=0.55,
+                recall=0.68,
+                f1=0.61,
+                roc_auc=0.75,
+            ),
+        }
+    )
+
+    restored = EvaluationArtifact.model_validate(
+        artifact.model_dump(mode="json")
+    )
+
+    assert restored == artifact
+    assert restored.selected_threshold == pytest.approx(0.35)
+    assert restored.validation_f1 == pytest.approx(0.72)
+    assert restored.threshold_metrics.recall == pytest.approx(0.68)
+
+
+@pytest.mark.parametrize("threshold", [-0.01, 1.01])
+def test_evaluation_artifact_rejects_invalid_threshold(threshold):
+    payload = build_project().evaluation.model_dump()
+    payload["selected_threshold"] = threshold
+
+    with pytest.raises(ValueError):
+        EvaluationArtifact.model_validate(payload)

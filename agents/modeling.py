@@ -27,6 +27,12 @@ IMPORTANT RULES:
 13. Explain important assumptions, trade-offs, and limitations for each
     proposed model.
 14. The recommended model must be one of the proposed models.
+14a. The training pipeline supports only these exact model names:
+     - Logistic Regression
+     - Random Forest
+     Propose only models from this list. Use the exact names above.
+     Do not propose LightGBM, ElasticNet variants, or other algorithms.
+     Recommend only a model from the supported proposed candidates.
 15. If the evidence is insufficient to recommend a model confidently,
     explicitly say so.
 16. Human approval is required before the workflow can proceed.

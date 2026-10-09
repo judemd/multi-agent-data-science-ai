@@ -28,4 +28,17 @@ class EvaluationArtifact(BaseModel):
     model_metrics: EvaluationMetrics
     baseline_metrics: EvaluationMetrics
 
+    # Optional for compatibility with evaluation records from earlier revisions.
+    selected_threshold: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+    validation_f1: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+    )
+    threshold_metrics: EvaluationMetrics | None = None
+
     limitations: list[str] = Field(default_factory=list)

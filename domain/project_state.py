@@ -44,6 +44,8 @@ class ProjectState(BaseModel):
         pattern=r"^[0-9a-f]{64}$",
     )
     problem_framing: ProblemFramingArtifact | None = None
+    problem_framing_provenance: str | None = None
+    problem_framing_recovery_decision: HITLDecision | None = None
 
     data_preparation: DataPreparationArtifact | None = None
     data_preparation_review: DataPreparationReview | None = None

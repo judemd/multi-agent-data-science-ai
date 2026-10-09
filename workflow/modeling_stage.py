@@ -12,6 +12,7 @@ from domain.project_state import ProjectState
 from tools.modeling_evidence import build_modeling_evidence
 from tools.modeling_prompt import build_modeling_prompt
 from tools.modeling_sanity_check import check_modeling_dataset
+from workflow.modeling_workflow import SUPPORTED_MODELS
 from workflow.states import WorkflowState
 
 
@@ -127,6 +128,21 @@ def run_modeling_stage_for_project(
     prompt = build_modeling_prompt(artifact)
 
     review = run_modeling_agent(prompt)
+
+    proposed_names = [model.name for model in review.proposed_models]
+    if not proposed_names:
+        raise ValueError('Invalid model proposal: no models proposed.')
+
+    unsupported = set(proposed_names) - SUPPORTED_MODELS
+    if unsupported:
+        raise ValueError(
+            f'Invalid model proposal: unsupported models {sorted(unsupported)}'
+        )
+
+    if review.recommended_model not in proposed_names:
+        raise ValueError(
+            'Invalid model proposal: recommended model was not proposed.'
+        )
 
     project.modeling = artifact
     project.modeling_review = review

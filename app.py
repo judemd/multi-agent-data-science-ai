@@ -310,13 +310,10 @@ def _load_prepared_dataframe(
         return None
 
 def _start_over() -> None:
-    """Delete persisted workflow state and reset the application."""
+    """Reset the active workflow while preserving saved projects."""
 
-    project = st.session_state.get("project_state")
-
-    if project is not None:
-        PROJECT_STORE.delete(project.project_id)
-
+    # Saved project JSON records must survive a workflow reset.
+    # Only the active session and its temporary dataset are cleared.
     if ACTIVE_STATE_PATH.exists():
         ACTIVE_STATE_PATH.unlink()
 
@@ -346,8 +343,9 @@ def render_global_start_over() -> None:
         return
 
     st.warning(
-        "Starting over will clear the current project, dataset, reviews, "
-        "decisions, and workflow state. This cannot be undone."
+        "Starting over will clear the active workflow session and its "
+        "temporary uploaded dataset. Previously saved project records "
+        "will be preserved."
     )
 
     cancel_column, confirm_column = st.columns(2)

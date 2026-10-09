@@ -189,3 +189,54 @@ def test_missing_prepared_path_blocks_before_agent(
         run_stage(project)
 
     assert project.current_state == WorkflowState.MODELING
+
+@pytest.mark.parametrize(
+    ("proposals", "recommended"),
+    [
+        ([], "Logistic Regression"),
+        (
+            [
+                ProposedModel(
+                    name="Gradient Boosted Decision Trees (LightGBM)",
+                    model_family="boosting",
+                    rationale="Candidate proposed by the agent.",
+                )
+            ],
+            "Gradient Boosted Decision Trees (LightGBM)",
+        ),
+        (
+            [
+                ProposedModel(
+                    name="Random Forest",
+                    model_family="ensemble",
+                    rationale="Suitable classification candidate.",
+                )
+            ],
+            "Logistic Regression",
+        ),
+    ],
+)
+def test_invalid_model_proposals_do_not_advance_project(
+    tmp_path, monkeypatch, proposals, recommended
+):
+    project, _ = build_project(tmp_path)
+
+    def mocked_agent(prompt):
+        return ModelingReview(
+            proposed_models=proposals,
+            recommended_model=recommended,
+        )
+
+    monkeypatch.setattr(
+        "workflow.modeling_stage.run_modeling_agent",
+        mocked_agent,
+    )
+
+    with pytest.raises(ValueError, match="model proposal"):
+        run_stage(project)
+
+    assert project.current_state == WorkflowState.MODELING
+    assert project.modeling is None
+    assert project.modeling_review is None
+    assert project.prepared_dataset_path is not None
+    assert project.prepared_dataset_fingerprint is not None
