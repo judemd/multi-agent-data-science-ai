@@ -6,6 +6,8 @@ from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_review import DataPreparationReview
 from domain.data_preparation_treatment_plan import DataPreparationTreatmentPlan
 from domain.evaluation import EvaluationArtifact
+from domain.finalization import FinalizationArtifact
+from domain.finalization_revision import FinalizationRevisionResolution
 from domain.hitl_decision import HITLDecision
 from domain.modeling import ModelingArtifact
 from domain.modeling_review import ModelingReview
@@ -60,6 +62,22 @@ class ProjectState(BaseModel):
         default_factory=list
     )
     evaluation_decision_history: list[HITLDecision] = Field(
+        default_factory=list
+    )
+
+    finalization: FinalizationArtifact | None = None
+    finalization_evidence_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    handoff_decision: HITLDecision | None = None
+    handoff_decision_history: list[HITLDecision] = Field(
+        default_factory=list
+    )
+    finalization_revision_resolution: FinalizationRevisionResolution | None = None
+    finalization_revision_history: list[FinalizationRevisionResolution] = Field(
         default_factory=list
     )
 

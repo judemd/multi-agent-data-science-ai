@@ -39,7 +39,16 @@ from workflow.data_understanding_stage import (
 from workflow.data_understanding_transitions import (
     evaluate_and_transition_data_understanding,
 )
+from ui_finalization import (
+    render_finalization_hitl_controls,
+    render_finalization_review,
+)
+from ui_finalization_revision import (
+    render_finalization_revision_controls,
+    render_finalization_revision_review,
+)
 from workflow.evaluation_stage import run_evaluation_stage
+from workflow.finalization_stage import run_finalization_stage
 from workflow.modeling_stage import run_modeling_stage_for_project
 from workflow.states import WorkflowState
 
@@ -1343,6 +1352,107 @@ def main() -> None:
             st.divider()
 
             render_evaluation_hitl_controls(project)
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
+        and project.current_state == WorkflowState.FINALIZATION
+        and project.handoff_decision is not None
+        and project.handoff_decision.decision == "request_revision"
+    ):
+        st.divider()
+        render_finalization_revision_review(project)
+        render_finalization_revision_controls(project)
+        return
+
+    if (
+        project is not None
+        and project.current_state == WorkflowState.FINALIZATION
+    ):
+        with st.spinner("Assembling verified POC handoff evidence..."):
+            try:
+                project = run_finalization_stage(project)
+            except (ValueError, OSError) as exc:
+                st.error(f"Unable to complete Finalization: {exc}")
+                return
+
+        st.session_state["project_state"] = project
+        PROJECT_STORE.save(project)
+        _persist_active_state()
+        st.rerun()
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
+        and project.current_state == WorkflowState.AWAITING_HANDOFF_APPROVAL
+    ):
+        st.divider()
+
+        if (
+            project.finalization is None
+            or not project.finalization_evidence_fingerprint
+        ):
+            st.error(
+                "Verified Finalization evidence is missing. "
+                "Human handoff review cannot proceed."
+            )
+        else:
+            render_finalization_review(
+                project.finalization,
+                project.finalization_evidence_fingerprint,
+            )
+
+            st.divider()
+
+            render_finalization_hitl_controls(project)
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
+        and project.current_state in (
+            WorkflowState.COMPLETE,
+            WorkflowState.BLOCKED,
+        )
+        and project.handoff_decision is not None
+    ):
+        st.divider()
+        st.subheader("Finalization Handoff Status")
+
+        if (
+            project.current_state == WorkflowState.COMPLETE
+            and project.handoff_decision.decision == "approve"
+        ):
+            st.success("POC handoff approved and completed.")
+        elif (
+            project.current_state == WorkflowState.BLOCKED
+            and project.handoff_decision.decision == "reject"
+        ):
+            st.error("POC handoff rejected. The workflow is blocked.")
+        else:
+            st.error("Handoff state and decision are inconsistent.")
+            return
+
+        st.write(
+            f"**Reviewer:** {project.handoff_decision.reviewer}"
+        )
+        st.write(
+            f"**Decision rationale:** "
+            f"{project.handoff_decision.rationale}"
+        )
+
+        if project.finalization is not None:
+            st.write(
+                "**Handoff evidence SHA-256:** "
+                f"`{project.finalization_evidence_fingerprint}`"
+            )
+
+        st.info(
+            "This decision concerns the POC handoff only. "
+            "Production deployment has not been authorized."
+        )
 
 if __name__ == "__main__":
     main()
