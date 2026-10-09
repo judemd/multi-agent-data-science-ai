@@ -3,7 +3,10 @@ import streamlit as st
 from domain.hitl_decision import HITLDecision
 from domain.modeling_review import ModelingReview
 from tools.project_store import ProjectStore
-from workflow.modeling_workflow import apply_modeling_decision
+from workflow.modeling_workflow import (
+    SUPPORTED_MODELS,
+    apply_modeling_decision,
+)
 from workflow.states import WorkflowState
 
 PROJECT_STORE = ProjectStore()
@@ -148,7 +151,57 @@ def render_modeling_hitl_controls(
             "The review and decision history are preserved below."
         )
 
+    eligible_models = list(dict.fromkeys(
+        model.name
+        for model in review.proposed_models
+        if model.name in SUPPORTED_MODELS
+    ))
+
+    recommended_index = (
+        eligible_models.index(review.recommended_model)
+        if review.recommended_model in eligible_models
+        else 0
+    )
+
+    available_features = (
+        list(project.modeling.feature_columns)
+        if project.modeling is not None
+        else []
+    )
+
+    previously_selected = project.selected_feature_columns or []
+    default_features = [
+        column
+        for column in previously_selected
+        if column in available_features
+    ]
+
     with st.form("modeling_human_review"):
+        selected_features = st.multiselect(
+            "Approved features for training *",
+            options=available_features,
+            default=default_features,
+            help=(
+                "Select only features approved for model training. "
+                "Exclude identifiers, leakage-prone columns, and any "
+                "features that should not be used."
+            ),
+            disabled=is_blocked or not available_features,
+        )
+
+        st.caption(
+            f"{len(selected_features)} of "
+            f"{len(available_features)} features selected."
+        )
+
+        selected_model = st.selectbox(
+            "Select model for training *",
+            options=eligible_models,
+            index=recommended_index if eligible_models else None,
+            placeholder="No supported models were proposed",
+            disabled=is_blocked or not eligible_models,
+        )
+
         reviewer = st.text_input(
             "Reviewer *",
             placeholder="Enter reviewer name or role.",
@@ -203,6 +256,18 @@ def render_modeling_hitl_controls(
     if decision_value is None:
         return
 
+    if decision_value == "approve" and selected_model is None:
+        st.warning(
+            "Select a supported model before approving Modeling."
+        )
+        return
+
+    if decision_value == "approve" and not selected_features:
+        st.warning(
+            "Select at least one approved feature before approving Modeling."
+        )
+        return
+
     if not reviewer.strip():
         st.warning(
             "Enter the reviewer before submitting a decision."
@@ -242,6 +307,16 @@ def render_modeling_hitl_controls(
         apply_modeling_decision(
             project,
             decision,
+            selected_model=(
+                selected_model
+                if decision_value == "approve"
+                else None
+            ),
+            selected_feature_columns=(
+                selected_features
+                if decision_value == "approve"
+                else None
+            ),
         )
     except ValueError as exc:
         st.error(str(exc))

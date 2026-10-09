@@ -323,7 +323,10 @@ def apply_data_preparation_decision(
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+        prepared_fingerprint = fingerprint_dataset_file(prepared_path)
+
         project.prepared_dataset_path = str(prepared_path)
+        project.prepared_dataset_fingerprint = prepared_fingerprint
         project.current_state = WorkflowState.MODELING
 
     elif next_state == "revision":

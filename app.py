@@ -1,4 +1,4 @@
-﻿import json
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -22,6 +22,10 @@ from ui_data_preparation import (
     render_data_preparation_hitl_controls,
     render_data_preparation_review,
 )
+from ui_evaluation import (
+    render_evaluation_hitl_controls,
+    render_evaluation_review,
+)
 from ui_modeling import (
     render_modeling_hitl_controls,
     render_modeling_review,
@@ -35,6 +39,7 @@ from workflow.data_understanding_stage import (
 from workflow.data_understanding_transitions import (
     evaluate_and_transition_data_understanding,
 )
+from workflow.evaluation_stage import run_evaluation_stage
 from workflow.modeling_stage import run_modeling_stage_for_project
 from workflow.states import WorkflowState
 
@@ -1218,7 +1223,11 @@ def main() -> None:
         and project.modeling is None
         and project.modeling_review is None
     ):
-        modeling_target = st.session_state.get("target_column")
+        modeling_target = (
+            project.evaluation_history[-1].target_column
+            if project.evaluation_history
+            else st.session_state.get("target_column")
+        )
 
         if not modeling_target:
             st.warning(
@@ -1275,6 +1284,26 @@ def main() -> None:
 
     if (
         project is not None
+        and project.current_state == WorkflowState.EVALUATION
+    ):
+        with st.spinner(
+            "Training the approved model and evaluating holdout results..."
+        ):
+            try:
+                project = run_evaluation_stage(project)
+            except (ValueError, OSError) as exc:
+                st.error(f"Unable to complete Evaluation: {exc}")
+                return
+
+        st.session_state["project_state"] = project
+        PROJECT_STORE.save(project)
+        _persist_active_state()
+        st.rerun()
+
+    project = st.session_state.get("project_state")
+
+    if (
+        project is not None
         and project.modeling_review is not None
     ):
         st.divider()
@@ -1295,7 +1324,25 @@ def main() -> None:
 
         _persist_active_state()
 
+    project = st.session_state.get("project_state")
 
+    if (
+        project is not None
+        and project.current_state == WorkflowState.AWAITING_GO_NO_GO
+    ):
+        st.divider()
+
+        if project.evaluation is None:
+            st.error(
+                "Evaluation evidence is missing. "
+                "Human GO / NO-GO review cannot proceed."
+            )
+        else:
+            render_evaluation_review(project.evaluation)
+
+            st.divider()
+
+            render_evaluation_hitl_controls(project)
 
 if __name__ == "__main__":
     main()

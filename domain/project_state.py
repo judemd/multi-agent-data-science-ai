@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_review import DataPreparationReview
 from domain.data_preparation_treatment_plan import DataPreparationTreatmentPlan
+from domain.evaluation import EvaluationArtifact
 from domain.hitl_decision import HITLDecision
 from domain.modeling import ModelingArtifact
 from domain.modeling_review import ModelingReview
@@ -22,6 +23,12 @@ class ProjectState(BaseModel):
 
     dataset_path: str | None = None
     prepared_dataset_path: str | None = None
+    prepared_dataset_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     data_preparation_dataset_fingerprint: str | None = Field(
         default=None,
         min_length=64,
@@ -44,6 +51,17 @@ class ProjectState(BaseModel):
     modeling: ModelingArtifact | None = None
     modeling_review: ModelingReview | None = None
     modeling_decision: HITLDecision | None = None
+    selected_model: str | None = None
+    selected_feature_columns: list[str] | None = None
+
+    evaluation: EvaluationArtifact | None = None
+    evaluation_decision: HITLDecision | None = None
+    evaluation_history: list[EvaluationArtifact] = Field(
+        default_factory=list
+    )
+    evaluation_decision_history: list[HITLDecision] = Field(
+        default_factory=list
+    )
 
     revision: int = Field(default=1, ge=1)
 
