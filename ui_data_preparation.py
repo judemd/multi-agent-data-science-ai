@@ -135,7 +135,7 @@ def render_data_preparation_hitl_controls(
             issue_label = issue.column or "Entire dataset"
 
             with st.expander(
-                f"{issue.issue_type} ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â {issue_label}",
+                f"{issue.issue_type} - {issue_label}",
                 expanded=False,
             ):
                 st.write(f"**Issue ID:** {issue.issue_id}")
@@ -175,7 +175,7 @@ def render_data_preparation_hitl_controls(
                     return
 
                 st.markdown(
-                    f"**{issue.issue_type} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â "
+                    f"**{issue.issue_type} - "
                     f"{issue.column or 'Entire dataset'}**"
                 )
 

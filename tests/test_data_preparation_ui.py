@@ -35,3 +35,18 @@ def test_data_preparation_project_has_review():
     assert project.current_state == WorkflowState.AWAITING_PREPARATION_APPROVAL
 
 
+
+
+
+def test_data_preparation_ui_issue_labels_are_readable():
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "ui_data_preparation.py"
+    ).read_text(encoding="utf-8")
+
+    assert source.count("{issue.issue_type} - ") == 2
+
+    # Detect common signs of accidentally double-decoded UTF-8 text.
+    for marker in ("\u00c3", "\u00c2", "\u00e2\u20ac", "\ufffd"):
+        assert marker not in source
