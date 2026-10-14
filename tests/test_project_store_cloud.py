@@ -128,6 +128,7 @@ def test_project_save_uploads_prepared_dataset_before_json(tmp_path, monkeypatch
     )
 
     client = MagicMock()
+    client.bucket.return_value.blob.return_value.exists.return_value = False
     monkeypatch.setattr("google.cloud.storage.Client", lambda: client)
 
     store = ProjectStore(storage_dir=str(tmp_path))

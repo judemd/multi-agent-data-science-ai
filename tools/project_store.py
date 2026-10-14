@@ -31,10 +31,12 @@ class ProjectStore:
                     raise FileNotFoundError(
                         f"Prepared dataset '{prepared_path}' was not found."
                     )
-                bucket.blob(prepared_path.name).upload_from_filename(
-                    str(prepared_path),
-                    if_generation_match=0,
-                )
+                prepared_blob = bucket.blob(prepared_path.name)
+                if not prepared_blob.exists():
+                    prepared_blob.upload_from_filename(
+                        str(prepared_path),
+                        if_generation_match=0,
+                    )
 
             blob = bucket.blob(path.name)
             if project._cloud_generation is not None:
