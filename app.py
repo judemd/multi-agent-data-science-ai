@@ -12,6 +12,8 @@ load_dotenv()
 from domain.data_understanding import DataUnderstandingArtifact
 from domain.data_understanding_review import DataUnderstandingReview
 from domain.hitl_decision import HITLDecision
+from domain.problem_framing import ProblemFramingArtifact
+from domain.problem_framing import ProblemFramingArtifact
 from domain.project_state import ProjectState
 from tools.data_loader import (
     UnsupportedFileTypeError,
