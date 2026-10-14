@@ -1,4 +1,4 @@
-﻿from google.adk.agents import Agent
+from google.adk.agents import Agent
 from google.adk.models import Gemini
 
 DATA_PREPARATION_INSTRUCTION = """
@@ -53,7 +53,17 @@ Your response must contain exactly these JSON fields:
 Field requirements:
 
 - observed_evidence: facts directly supported by the artifact.
-- proposed_actions: possible preparation actions, expressed as proposals only.
+- proposed_actions: a list of structured preparation action objects.
+  Each action must contain:
+  - operation: one of "impute_missing", "remove_duplicates",
+    "exclude_feature", "drop_rows", "trim_whitespace",
+    "normalize_nulls", or "normalize_categories".
+  - column: affected column name, or null when not applicable.
+  - strategy: operation-specific strategy, or null when not applicable.
+  - reason: REQUIRED non-empty, evidence-based explanation for the action.
+  Never omit reason from any proposed action.
+  Only propose operations supported by the supplied evidence.
+  If no action is justified, return an empty list.
 - rationale: evidence supporting each proposed action.
 - risks_and_limitations: risks associated with preparation decisions.
 - human_review_questions: decisions requiring human input.
@@ -73,7 +83,7 @@ Human approval is required before moving to the next workflow stage.
 data_preparation_agent = Agent(
     name="data_preparation_agent",
     model=Gemini(
-        model="gemini-3.5-flash",
+        model="gemini-2.5-flash",
     ),
     instruction=DATA_PREPARATION_INSTRUCTION,
 )

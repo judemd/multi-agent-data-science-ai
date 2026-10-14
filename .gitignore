@@ -45,3 +45,6 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Google ADK runtime sessions
+agents/.adk/

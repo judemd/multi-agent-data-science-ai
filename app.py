@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 from pathlib import Path
 
 import pandas as pd
@@ -108,6 +109,16 @@ def _persist_uploaded_dataset(uploaded_file: object) -> Path:
 
     dataset_path.write_bytes(uploaded_file.getvalue())
 
+    import os
+
+    bucket_name = os.getenv("GCS_BUCKET")
+    if bucket_name:
+        from google.cloud import storage
+
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(dataset_path.name)
+        blob.upload_from_filename(str(dataset_path))
+
     st.session_state["persisted_dataset_path"] = str(dataset_path)
     st.session_state["persisted_dataset_name"] = uploaded_file.name
 
@@ -176,6 +187,29 @@ def _persist_active_state() -> None:
         encoding="utf-8",
     )
 
+    import os
+
+    bucket_name = os.getenv("GCS_BUCKET")
+    if bucket_name:
+        from google.cloud import storage
+
+        client = storage.Client()
+        blob = client.bucket(bucket_name).blob(ACTIVE_STATE_PATH.name)
+        from google.api_core.exceptions import NotFound
+
+        try:
+            blob.reload()
+            generation = blob.generation
+        except NotFound:
+            generation = 0
+
+        blob.upload_from_filename(
+            str(ACTIVE_STATE_PATH),
+            if_generation_match=(
+                int(generation) if generation is not None else 0
+            ),
+        )
+
     if project is not None:
         PROJECT_STORE.save(project)
 
@@ -187,6 +221,26 @@ def _restore_persisted_state() -> None:
         return
 
     st.session_state["persistence_restored"] = True
+
+    if not ACTIVE_STATE_PATH.exists():
+        import os
+
+        bucket_name = os.getenv("GCS_BUCKET")
+        if bucket_name:
+            from google.api_core.exceptions import NotFound
+            from google.cloud import storage
+
+            client = storage.Client()
+            blob = client.bucket(bucket_name).blob(ACTIVE_STATE_PATH.name)
+
+            try:
+                ACTIVE_STATE_PATH.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                blob.download_to_filename(str(ACTIVE_STATE_PATH))
+            except NotFound:
+                return
 
     if not ACTIVE_STATE_PATH.exists():
         return
@@ -278,6 +332,24 @@ def _load_persisted_dataframe() -> pd.DataFrame | None:
 
     path = Path(dataset_path)
     if not path.exists():
+        import os
+
+        bucket_name = os.getenv("GCS_BUCKET")
+        if not bucket_name:
+            return None
+
+        from google.api_core.exceptions import NotFound
+        from google.cloud import storage
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            client = storage.Client()
+            blob = client.bucket(bucket_name).blob(path.name)
+            blob.download_to_filename(str(path))
+        except NotFound:
+            return None
+
+    if not path.exists():
         return None
 
     try:
@@ -311,6 +383,26 @@ def _load_prepared_dataframe(
 
 def _start_over() -> None:
     """Reset the active workflow while preserving saved projects."""
+
+    import os
+
+    bucket_name = os.getenv("GCS_BUCKET")
+    if bucket_name:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+
+        for object_name in (
+            ACTIVE_STATE_PATH.name,
+            *(
+                path.name
+                for path in PERSISTENCE_DIR.glob(
+                    f"{ACTIVE_DATASET_PREFIX}.*"
+                )
+            ),
+        ):
+            bucket.blob(object_name).delete()
 
     # Saved project JSON records must survive a workflow reset.
     # Only the active session and its temporary dataset are cleared.
@@ -382,8 +474,17 @@ def render_workflow() -> None:
         "Final Recommendation",
     ]
 
+    from workflow.display import get_current_stage
+
+    project = st.session_state.get("project_state")
+    current_stage = (
+        get_current_stage(project.current_state)
+        if project is not None
+        else "Problem Framing"
+    )
+
     for index, stage in enumerate(stages):
-        status = "Current" if index == 0 else "Pending"
+        status = "Current" if stage == current_stage else "Pending"
         st.write(f"**{index + 1}. {stage}** - {status}")
 
 
@@ -1095,7 +1196,7 @@ def main() -> None:
             return
 
         project = ProjectState(
-            project_id=f"project-{dataset_name}",
+            project_id=f"project-{uuid4().hex}",
             project_name=business_context["business_problem"],
             dataset_path=dataset_path,
         )
@@ -1312,6 +1413,10 @@ def main() -> None:
     if (
         project is not None
         and project.modeling_review is not None
+        and project.current_state in (
+            WorkflowState.AWAITING_MODEL_SELECTION,
+            WorkflowState.BLOCKED,
+        )
     ):
         st.divider()
 

@@ -150,7 +150,7 @@ def train_selected_model(
         ("imputer", SimpleImputer(strategy="most_frequent")),
         ("encoder", OneHotEncoder(
             handle_unknown="ignore",
-            sparse_output=False,
+            sparse_output=True,
         )),
     ])
 
@@ -160,6 +160,7 @@ def train_selected_model(
             ("categorical", categorical_pipeline, categorical_columns),
         ],
         remainder="drop",
+        sparse_threshold=1.0,
     )
 
     if selected_model == "Logistic Regression":

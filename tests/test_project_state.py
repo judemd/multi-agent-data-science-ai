@@ -42,3 +42,25 @@ def test_project_rejects_invalid_preparation_fingerprint():
             project_name="Invalid Fingerprint",
             data_preparation_dataset_fingerprint="not-a-sha256-hash",
         )
+
+
+def test_uuid_project_ids_are_unique_for_same_dataset():
+    from uuid import uuid4
+
+    from domain.project_state import ProjectState
+
+    dataset_name = "customers.csv"
+
+    first = ProjectState(
+        project_id=f"project-{uuid4().hex}",
+        project_name="First analysis",
+        dataset_path=dataset_name,
+    )
+    second = ProjectState(
+        project_id=f"project-{uuid4().hex}",
+        project_name="Second analysis",
+        dataset_path=dataset_name,
+    )
+
+    assert first.project_id != second.project_id
+    assert first.dataset_path == second.dataset_path

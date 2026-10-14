@@ -381,3 +381,27 @@ def test_evaluation_reports_selected_threshold_separately(training_data):
     assert result.threshold_metrics.roc_auc == pytest.approx(
         result.model_metrics.roc_auc
     )
+
+
+def test_categorical_preprocessing_remains_sparse():
+    from scipy import sparse
+
+    rows = 100
+    dataframe = pd.DataFrame({
+        "age": list(range(rows)),
+        "category": [f"group_{i}" for i in range(rows)],
+        "churned": [0, 1] * (rows // 2),
+    })
+
+    result = train_selected_model(
+        dataframe,
+        "churned",
+        "Random Forest",
+        ["age", "category"],
+    )
+
+    transformed = result.model_pipeline.named_steps[
+        "preprocessor"
+    ].transform(result.x_test)
+
+    assert sparse.issparse(transformed)

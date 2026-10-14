@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from domain.data_preparation import DataPreparationArtifact
 from domain.data_preparation_review import DataPreparationReview
@@ -17,6 +17,8 @@ from workflow.states import WorkflowState
 
 class ProjectState(BaseModel):
     """Persisted state for a single data science workflow."""
+
+    _cloud_generation: int | None = PrivateAttr(default=None)
 
     project_id: str = Field(min_length=1)
     project_name: str = Field(min_length=1)
@@ -57,6 +59,9 @@ class ProjectState(BaseModel):
     modeling_decision: HITLDecision | None = None
     selected_model: str | None = None
     selected_feature_columns: list[str] | None = None
+    modeling_approval_history: list[dict] = Field(
+        default_factory=list
+    )
 
     evaluation: EvaluationArtifact | None = None
     evaluation_decision: HITLDecision | None = None

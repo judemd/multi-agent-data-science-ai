@@ -300,3 +300,43 @@ def test_revision_clears_selected_features():
     assert updated.current_state == WorkflowState.MODELING
     assert updated.selected_model is None
     assert updated.selected_feature_columns is None
+
+def test_recover_interrupted_evaluation_preserves_approval():
+    from workflow.modeling_recovery import recover_interrupted_evaluation
+
+    project = apply_modeling_decision(
+        build_project(),
+        build_decision("approve"),
+        selected_model="Logistic Regression",
+        selected_feature_columns=["age", "region"],
+    )
+
+    original_review = project.modeling_review.model_copy(deep=True)
+    original_modeling = project.modeling.model_copy(deep=True)
+
+    recovered = recover_interrupted_evaluation(
+        project,
+        reason="Interrupted training; feature selection requires correction.",
+    )
+
+    assert recovered.current_state == WorkflowState.AWAITING_MODEL_SELECTION
+    assert recovered.modeling_decision is None
+    assert recovered.selected_model is None
+    assert recovered.selected_feature_columns is None
+    assert recovered.evaluation is None
+    assert recovered.modeling == original_modeling
+    assert recovered.modeling_review == original_review
+
+    assert len(recovered.modeling_approval_history) == 1
+    record = recovered.modeling_approval_history[0]
+    assert record["selected_model"] == "Logistic Regression"
+    assert record["selected_feature_columns"] == ["age", "region"]
+    assert record["decision"]["decision"] == "approve"
+    assert "Interrupted training" in record["recovery_reason"]
+
+    restored = ProjectState.model_validate_json(
+        recovered.model_dump_json()
+    )
+    assert restored.modeling_approval_history == (
+        recovered.modeling_approval_history
+    )

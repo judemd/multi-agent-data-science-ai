@@ -189,11 +189,6 @@ def render_modeling_hitl_controls(
             disabled=is_blocked or not available_features,
         )
 
-        st.caption(
-            f"{len(selected_features)} of "
-            f"{len(available_features)} features selected."
-        )
-
         selected_model = st.selectbox(
             "Select model for training *",
             options=eligible_models,

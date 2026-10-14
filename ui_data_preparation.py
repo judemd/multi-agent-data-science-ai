@@ -121,129 +121,134 @@ def render_data_preparation_hitl_controls(
         st.error("No Data Preparation evidence is available.")
         return
 
-    st.markdown("#### Detected Data Quality Issues")
+    issues_column, decisions_column = st.columns(2, gap="large")
 
-    if not artifact.issues:
-        st.info("No typed data quality issues were detected.")
-    else:
-        st.caption(
-            f"{len(artifact.issues)} issue(s) require a treatment decision "
-            "before preparation can be approved."
-        )
+    with issues_column:
+        st.markdown("#### Detected Data Quality Issues")
 
-        for issue in artifact.issues:
-            issue_label = issue.column or "Entire dataset"
-
-            with st.expander(
-                f"{issue.issue_type} - {issue_label}",
-                expanded=False,
-            ):
-                st.write(f"**Issue ID:** {issue.issue_id}")
-                st.write(f"**Evidence:** {issue.evidence}")
-                st.write(
-                    "**Permitted treatments:** "
-                    + ", ".join(issue.allowed_treatments)
-                )
-
-                if issue.requires_explicit_human_decision:
-                    st.warning("Explicit human decision required.")
-
-    if is_blocked:
-        st.error(
-            "The workflow is blocked by the human rejection. "
-            "The review and decision history are preserved below."
-        )
-
-    with st.form("data_preparation_human_review"):
-        selected_treatments = {}
-
-        if artifact.issues:
-            st.markdown("#### Human Treatment Decisions")
+        if not artifact.issues:
+            st.info("No typed data quality issues were detected.")
+        else:
             st.caption(
-                "Choose a treatment and explain your reasoning for "
-                "every detected issue. No treatment is selected automatically."
+                f"{len(artifact.issues)} issue(s) require a treatment decision "
+                "before preparation can be approved."
             )
 
             for issue in artifact.issues:
-                issue_id = issue.issue_id
+                issue_label = issue.column or "Entire dataset"
 
-                if not issue_id:
-                    st.error(
-                        "A detected issue has no stable ID. "
-                        "Preparation approval cannot proceed."
+                with st.expander(
+                    f"{issue.issue_type} - {issue_label}",
+                    expanded=False,
+                ):
+                    st.write(f"**Issue ID:** {issue.issue_id}")
+                    st.write(f"**Evidence:** {issue.evidence}")
+                    st.write(
+                        "**Permitted treatments:** "
+                        + ", ".join(issue.allowed_treatments)
                     )
-                    return
 
-                st.markdown(
-                    f"**{issue.issue_type} - "
-                    f"{issue.column or 'Entire dataset'}**"
+                    if issue.requires_explicit_human_decision:
+                        st.warning("Explicit human decision required.")
+
+
+        if is_blocked:
+            st.error(
+                "The workflow is blocked by the human rejection. "
+                "The review and decision history are preserved below."
+            )
+
+    with decisions_column:
+        with st.form("data_preparation_human_review"):
+            selected_treatments = {}
+
+            if artifact.issues:
+                st.markdown("#### Human Treatment Decisions")
+                st.caption(
+                    "Choose a treatment and explain your reasoning for "
+                    "every detected issue. No treatment is selected automatically."
                 )
 
-                treatment = st.selectbox(
-                    f"Treatment for {issue_id} *",
-                    options=[None, *issue.allowed_treatments],
-                    format_func=lambda value: (
-                        "Select a treatment..."
-                        if value is None
-                        else value.replace("_", " ").title()
-                    ),
-                    key=f"preparation_treatment_{issue_id}",
+                for issue in artifact.issues:
+                    issue_id = issue.issue_id
+
+                    if not issue_id:
+                        st.error(
+                            "A detected issue has no stable ID. "
+                            "Preparation approval cannot proceed."
+                        )
+                        return
+
+                    st.markdown(
+                        f"**{issue.issue_type} - "
+                        f"{issue.column or 'Entire dataset'}**"
+                    )
+
+                    treatment = st.selectbox(
+                        f"Treatment for {issue_id} *",
+                        options=[None, *issue.allowed_treatments],
+                        format_func=lambda value: (
+                            "Select a treatment..."
+                            if value is None
+                            else value.replace("_", " ").title()
+                        ),
+                        key=f"preparation_treatment_{issue_id}",
+                        disabled=is_blocked,
+                    )
+
+                    treatment_rationale = st.text_area(
+                        f"Treatment rationale for {issue_id} *",
+                        key=f"preparation_treatment_rationale_{issue_id}",
+                        placeholder="Explain why this treatment is appropriate.",
+                        disabled=is_blocked,
+                    )
+
+                    selected_treatments[issue_id] = (
+                        treatment,
+                        treatment_rationale,
+                    )
+
+            reviewer = st.text_input(
+                "Reviewer *",
+                placeholder="Enter reviewer name or role.",
+                key="data_preparation_reviewer",
+                disabled=is_blocked,
+            )
+
+            rationale = st.text_area(
+                "Reviewer rationale *",
+                placeholder="Explain the reason for your decision.",
+                key="data_preparation_review_rationale",
+                disabled=is_blocked,
+            )
+
+            feedback_text = st.text_area(
+                "Requested changes / feedback",
+                placeholder="Required when requesting a revision.",
+                key="data_preparation_feedback",
+                disabled=is_blocked,
+            )
+
+            approve_column, revision_column, reject_column = st.columns(3)
+
+            with approve_column:
+                approve = st.form_submit_button(
+                    "Approve Preparation",
+                    type="primary",
                     disabled=is_blocked,
                 )
 
-                treatment_rationale = st.text_area(
-                    f"Treatment rationale for {issue_id} *",
-                    key=f"preparation_treatment_rationale_{issue_id}",
-                    placeholder="Explain why this treatment is appropriate.",
+            with revision_column:
+                request_revision = st.form_submit_button(
+                    "Request Revision",
                     disabled=is_blocked,
                 )
 
-                selected_treatments[issue_id] = (
-                    treatment,
-                    treatment_rationale,
+            with reject_column:
+                reject = st.form_submit_button(
+                    "Reject",
+                    disabled=is_blocked,
                 )
-
-        reviewer = st.text_input(
-            "Reviewer *",
-            placeholder="Enter reviewer name or role.",
-            key="data_preparation_reviewer",
-            disabled=is_blocked,
-        )
-
-        rationale = st.text_area(
-            "Reviewer rationale *",
-            placeholder="Explain the reason for your decision.",
-            key="data_preparation_review_rationale",
-            disabled=is_blocked,
-        )
-
-        feedback_text = st.text_area(
-            "Requested changes / feedback",
-            placeholder="Required when requesting a revision.",
-            key="data_preparation_feedback",
-            disabled=is_blocked,
-        )
-
-        approve_column, revision_column, reject_column = st.columns(3)
-
-        with approve_column:
-            approve = st.form_submit_button(
-                "Approve Preparation",
-                type="primary",
-                disabled=is_blocked,
-            )
-
-        with revision_column:
-            request_revision = st.form_submit_button(
-                "Request Revision",
-                disabled=is_blocked,
-            )
-
-        with reject_column:
-            reject = st.form_submit_button(
-                "Reject",
-                disabled=is_blocked,
-            )
 
     decision_value = None
 
