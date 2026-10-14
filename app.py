@@ -1130,8 +1130,6 @@ def main() -> None:
     with right_column:
         uploaded_file = render_dataset_upload()
 
-    _persist_active_state()
-
     st.divider()
 
     render_workflow()
@@ -1160,8 +1158,6 @@ def main() -> None:
 
     render_dataset_preview(dataframe)
     target_column = render_target_selection(dataframe)
-    
-    _persist_active_state()
 
     st.divider()
 
