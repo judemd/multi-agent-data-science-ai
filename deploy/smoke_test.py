@@ -36,8 +36,16 @@ def main():
         else:
             raise RuntimeError("Streamlit health check failed")
         session = create_dtale_session(pd.DataFrame({"feature": [1, 2, 3]}))
-        response = requests.get(base + get_dtale_url(session), timeout=15)
-        response.raise_for_status()
+        for _ in range(40):
+            try:
+                response = requests.get(base + get_dtale_url(session), timeout=2)
+                if response.status_code == 200:
+                    break
+            except requests.RequestException:
+                pass
+            time.sleep(1)
+        else:
+            raise RuntimeError("D-Tale did not become ready behind the proxy")
         assets = Assets()
         assets.feed(response.text)
         if not assets.paths:
