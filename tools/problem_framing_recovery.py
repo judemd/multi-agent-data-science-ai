@@ -14,9 +14,12 @@ def reconstruct_problem_framing(
         business_problem=business_context.get("business_problem", ""),
         business_objective=business_context.get("business_objective", ""),
         target_outcome=business_context.get("desired_outcome", ""),
-        success_criteria=[],
+        success_criteria=[business_context["success_metrics"].strip()]
+        if business_context.get("success_metrics", "").strip() else [],
         assumptions=[],
-        constraints=[],
-        risks=[],
+        constraints=[business_context["constraints"].strip()]
+        if business_context.get("constraints", "").strip() else [],
+        risks=[business_context["risks"].strip()]
+        if business_context.get("risks", "").strip() else [],
         questions_for_human=[],
     )

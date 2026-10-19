@@ -21,6 +21,8 @@ from tools.data_loader import (
 )
 from tools.data_profiler import profile_dataframe
 from tools.project_store import ProjectStore
+from ui_problem_framing_recovery import render_problem_framing_recovery
+from ui_dtale import render_dtale_reference
 from ui_data_preparation import (
     render_data_preparation_hitl_controls,
     render_data_preparation_review,
@@ -102,14 +104,17 @@ def _persist_uploaded_dataset(uploaded_file: object) -> Path:
 
     PERSISTENCE_DIR.mkdir(parents=True, exist_ok=True)
 
+    dataset_bytes = uploaded_file.getvalue()
+    existing_path = st.session_state.get("persisted_dataset_path")
+    if existing_path and st.session_state.get("persisted_dataset_name") == uploaded_file.name:
+        existing_path = Path(existing_path)
+        if existing_path.is_file() and existing_path.read_bytes() == dataset_bytes:
+            return existing_path
+
     suffix = Path(uploaded_file.name).suffix.lower()
-    dataset_path = PERSISTENCE_DIR / f"{ACTIVE_DATASET_PREFIX}{suffix}"
+    dataset_path = PERSISTENCE_DIR / f"{ACTIVE_DATASET_PREFIX}-{uuid4().hex}{suffix}"
 
-    for existing_path in PERSISTENCE_DIR.glob(f"{ACTIVE_DATASET_PREFIX}.*"):
-        if existing_path != dataset_path and existing_path.exists():
-            existing_path.unlink()
-
-    dataset_path.write_bytes(uploaded_file.getvalue())
+    dataset_path.write_bytes(dataset_bytes)
 
     import os
 
@@ -388,8 +393,21 @@ def _start_over() -> None:
 
     import os
 
+    # Keep source data referenced by saved projects, including legacy uploads.
+    referenced_paths = set()
+    for project_path in PERSISTENCE_DIR.glob("project-*.json"):
+        payload = json.loads(project_path.read_text(encoding="utf-8"))
+        if payload.get("dataset_path"):
+            referenced_paths.add(Path(payload["dataset_path"]).resolve())
+
+    temporary_datasets = [
+        path for path in PERSISTENCE_DIR.glob(f"{ACTIVE_DATASET_PREFIX}*")
+        if path.is_file() and path.resolve() not in referenced_paths
+    ]
+
     bucket_name = os.getenv("GCS_BUCKET")
     if bucket_name:
+        from google.api_core.exceptions import NotFound
         from google.cloud import storage
 
         client = storage.Client()
@@ -397,21 +415,19 @@ def _start_over() -> None:
 
         for object_name in (
             ACTIVE_STATE_PATH.name,
-            *(
-                path.name
-                for path in PERSISTENCE_DIR.glob(
-                    f"{ACTIVE_DATASET_PREFIX}.*"
-                )
-            ),
+            *(path.name for path in temporary_datasets),
         ):
-            bucket.blob(object_name).delete()
+            try:
+                bucket.blob(object_name).delete()
+            except NotFound:
+                pass
 
     # Saved project JSON records must survive a workflow reset.
     # Only the active session and its temporary dataset are cleared.
     if ACTIVE_STATE_PATH.exists():
         ACTIVE_STATE_PATH.unlink()
 
-    for dataset_path in PERSISTENCE_DIR.glob(f"{ACTIVE_DATASET_PREFIX}.*"):
+    for dataset_path in temporary_datasets:
         if dataset_path.exists():
             dataset_path.unlink()
 
@@ -421,10 +437,7 @@ def _start_over() -> None:
 
 
 def render_global_start_over() -> None:
-    """Render a global Start Over control for an active project."""
-
-    if st.session_state.get("project_state") is None:
-        return
+    """Render a confirmed reset, including during setup and failed analysis."""
 
     if not st.session_state.get("start_over_confirmation", False):
         if st.button(
@@ -438,8 +451,8 @@ def render_global_start_over() -> None:
 
     st.warning(
         "Starting over will clear the active workflow session and its "
-        "temporary uploaded dataset. Previously saved project records "
-        "will be preserved."
+        "unsaved uploaded datasets. Saved projects and their source datasets "
+        "will be preserved. Confirm to begin a new workflow."
     )
 
     cancel_column, confirm_column = st.columns(2)
@@ -454,7 +467,7 @@ def render_global_start_over() -> None:
 
     with confirm_column:
         if st.button(
-            "Start Over",
+            "Confirm Start Over",
             type="primary",
             key="confirm_start_over",
         ):
@@ -929,6 +942,7 @@ def render_data_understanding_evidence(
 
 def render_agent_review(
     review: DataUnderstandingReview,
+    dataframe: pd.DataFrame | None = None,
 ) -> None:
     """Display the Data Understanding Agent's structured review."""
 
@@ -939,7 +953,7 @@ def render_agent_review(
         "Human review is required before workflow progression."
     )
 
-    observed_tab, interpretation_tab, risks_tab, questions_tab, investigation_tab = (
+    observed_tab, interpretation_tab, risks_tab, questions_tab, investigation_tab, dtale_tab = (
         st.tabs(
             [
                 "Observed Evidence",
@@ -947,6 +961,7 @@ def render_agent_review(
                 "Risks & Limitations",
                 "Human Review Questions",
                 "Next Investigation",
+                "D-Tale Reference",
             ]
         )
     )
@@ -985,6 +1000,20 @@ def render_agent_review(
                 st.write(f"- {item}")
         else:
             st.info("No additional investigation was recommended.")
+
+    with dtale_tab:
+        if dataframe is None:
+            st.info("Upload a dataset to open the reference explorer.")
+        else:
+            try:
+                project = st.session_state.get("project_state")
+                render_dtale_reference(
+                    dataframe,
+                    dataset_key=project.project_id if project else "uploaded-dataset",
+                    dataset_name=st.session_state.get("persisted_dataset_name") or "Source dataset",
+                )
+            except Exception as exc:
+                st.warning(f"D-Tale reference explorer is unavailable: {exc}")
 
     if review.requires_human_review:
         st.warning(
@@ -1124,6 +1153,9 @@ def main() -> None:
 
     render_global_start_over()
 
+    if st.session_state.get("start_over_confirmation", False):
+        return
+
     left_column, right_column = st.columns(2)
 
     with left_column:
@@ -1165,8 +1197,15 @@ def main() -> None:
 
     project = st.session_state.get("project_state")
 
-    if project is None and st.button(
-        "Analyze Dataset",
+    analysis_pending = (
+        project is None
+        or (
+            project.current_state == WorkflowState.PROBLEM_FRAMING
+            and st.session_state.get("data_understanding_review") is None
+        )
+    )
+    if analysis_pending and st.button(
+        "Analyze Dataset" if project is None else "Retry Dataset Analysis",
         type="primary",
     ):
         missing_fields = [
@@ -1193,11 +1232,12 @@ def main() -> None:
             st.error("The uploaded dataset could not be persisted.")
             return
 
-        project = ProjectState(
-            project_id=f"project-{uuid4().hex}",
-            project_name=business_context["business_problem"],
-            dataset_path=dataset_path,
-        )
+        if project is None:
+            project = ProjectState(
+                project_id=f"project-{uuid4().hex}",
+                project_name=business_context["business_problem"],
+                dataset_path=dataset_path,
+            )
 
         st.session_state["project_state"] = project
         st.session_state["project_id"] = project.project_id
@@ -1253,20 +1293,13 @@ def main() -> None:
 
     if review is not None:
         st.divider()
-        render_agent_review(review)
+        render_agent_review(review, dataframe)
 
         st.divider()
         render_hitl_controls(review)
         _persist_active_state()
 
     project = st.session_state.get("project_state")
-
-    st.write(
-        "DEBUG:",
-        project is not None,
-        project.current_state if project is not None else None,
-        project.data_preparation is None if project is not None else None,
-    )
 
     if (
         project is not None
@@ -1471,6 +1504,19 @@ def main() -> None:
         project is not None
         and project.current_state == WorkflowState.FINALIZATION
     ):
+        if project.problem_framing is None:
+            recovered_project = render_problem_framing_recovery(project)
+            if recovered_project is not None:
+                try:
+                    PROJECT_STORE.save(recovered_project)
+                except Exception as exc:
+                    st.error(f"Unable to save reviewed Problem Framing: {exc}")
+                    return
+                st.session_state["project_state"] = recovered_project
+                _persist_active_state()
+                st.rerun()
+            return
+
         with st.spinner("Assembling verified POC handoff evidence..."):
             try:
                 project = run_finalization_stage(project)

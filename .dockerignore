@@ -29,3 +29,4 @@ temp/
 
 # Google ADK runtime sessions
 agents/.adk/
+project-*.json

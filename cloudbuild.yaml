@@ -1,0 +1,8 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_IMAGE}', '.']
+  - name: gcr.io/cloud-builders/docker
+    args: ['run', '--rm', '--entrypoint', 'python', '${_IMAGE}', '-m', 'deploy.smoke_test']
+images:
+  - '${_IMAGE}'
+timeout: 1200s

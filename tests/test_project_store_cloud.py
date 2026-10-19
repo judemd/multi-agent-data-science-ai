@@ -304,7 +304,8 @@ def test_uploaded_dataset_is_uploaded_to_gcs(tmp_path, monkeypatch):
     assert app.st.session_state["persisted_dataset_name"] == "customers.csv"
 
     client.bucket.assert_called_once_with("test-private-bucket")
-    client.bucket.return_value.blob.assert_called_once_with("active_dataset.csv")
+    client.bucket.return_value.blob.assert_called_once_with(dataset_path.name)
+    assert dataset_path.name.startswith("active_dataset-")
     client.bucket.return_value.blob.return_value.upload_from_filename.assert_called_once_with(
         str(dataset_path)
     )

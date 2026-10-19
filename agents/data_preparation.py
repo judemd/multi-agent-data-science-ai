@@ -1,5 +1,6 @@
 from google.adk.agents import Agent
 from google.adk.models import Gemini
+from domain.data_preparation_review import DataPreparationReview
 
 DATA_PREPARATION_INSTRUCTION = """
 You are the Data Preparation Agent in a human-in-the-loop data science workflow.
@@ -59,7 +60,11 @@ Field requirements:
     "exclude_feature", "drop_rows", "trim_whitespace",
     "normalize_nulls", or "normalize_categories".
   - column: affected column name, or null when not applicable.
-  - strategy: operation-specific strategy, or null when not applicable.
+  - strategy: a JSON string or null, NEVER an object, array, or category mapping.
+    For impute_missing use "median", "mean", or "mode" as supported by the data.
+    For all other operations use null. normalize_categories uses deterministic
+    case/whitespace grouping and the most frequent observed spelling, with the
+    first observed spelling breaking ties; do not invent category mappings.
   - reason: REQUIRED non-empty, evidence-based explanation for the action.
   Never omit reason from any proposed action.
   Only propose operations supported by the supplied evidence.
@@ -86,4 +91,5 @@ data_preparation_agent = Agent(
         model="gemini-2.5-flash",
     ),
     instruction=DATA_PREPARATION_INSTRUCTION,
+    output_schema=DataPreparationReview,
 )
